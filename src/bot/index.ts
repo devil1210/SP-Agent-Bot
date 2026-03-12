@@ -316,6 +316,24 @@ const handleIncomingMessage = async (ctx: Context) => {
         const shouldRespond = isMentioned || isReplyToBot || isActiveThread;
         const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
+        // --- AUTO-CONVERSIÓN FXTWITTER ---
+        if (isReplyToBot && (text.includes('x.com') || text.includes('twitter.com'))) {
+            const fxText = text
+                .replace(/(https?:\/\/)(www\.)?x\.com/g, '$1fxtwitter.com')
+                .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com');
+            
+            if (fxText !== text) {
+                await ctx.reply(`✨ <b>Enlace corregido:</b>\n${fxText}`, { 
+                    parse_mode: 'HTML',
+                    reply_parameters: { message_id: ctx.message!.message_id }
+                });
+                
+                // Si el mensaje es SOLO el link, no activamos la IA para ahorrar recursos
+                const urlOnly = text.trim().match(/^https?:\/\/[^\s]+$/);
+                if (urlOnly) return;
+            }
+        }
+
         if (!shouldRespond) {
             if (shouldSaveMemory && !isNoneMode) {
                 const senderName = ctx.from?.first_name || "Usuario";
