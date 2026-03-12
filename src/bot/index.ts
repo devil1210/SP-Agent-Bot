@@ -40,6 +40,36 @@ bot.command('clear', adminOnly, async (ctx) => {
   await ctx.reply(`Memoria de este ${threadId ? 'hilo' : 'chat'} borrada.`, { parse_mode: 'HTML' });
 });
 
+bot.command('say', adminOnly, async (ctx) => {
+    const input = ctx.match.trim();
+    const parts = input.split(/\s+/);
+    if (parts.length < 2) return ctx.reply("💡 <b>Uso:</b>\n- <code>/say [chatId] [mensaje]</code>\n- <code>/say [chatId] [threadId] [mensaje]</code>", { parse_mode: 'HTML' });
+
+    const targetChatId = parts[0];
+    const authorized = await getAuthorizedGroups();
+    if (!authorized.includes(targetChatId)) return ctx.reply("❌ Ese grupo no está autorizado.");
+
+    let threadId: number | undefined = undefined;
+    let message = "";
+
+    if (!isNaN(parseInt(parts[1])) && parts.length > 2) {
+        threadId = parseInt(parts[1]);
+        message = parts.slice(2).join(' ');
+    } else {
+        message = parts.slice(1).join(' ');
+    }
+
+    try {
+        await ctx.api.sendMessage(targetChatId, message, {
+            message_thread_id: threadId,
+            parse_mode: 'HTML'
+        });
+        await ctx.reply("✅ Mensaje enviado.");
+    } catch (e: any) {
+        await ctx.reply(`❌ Error: ${e.message}`);
+    }
+});
+
 bot.command('model', adminOnly, async (ctx) => {
   const model = ctx.match || 'gemini-3.1-flash-lite-preview';
   await setUserModel(ctx.chat.id.toString(), model);

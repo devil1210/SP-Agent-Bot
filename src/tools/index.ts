@@ -291,6 +291,37 @@ export const tools: Record<string, Tool> = {
         return report;
       } catch (err: any) { return `Error en el radar: ${err.message}`; }
     }
+  },
+
+  enviar_mensaje_grupo: {
+    name: 'enviar_mensaje_grupo',
+    description: 'Envía un mensaje a un grupo/hilo autorizado específico. Ideal para saludar o dar avisos.',
+    parameters: {
+      type: 'object',
+      properties: {
+        chatId: { type: 'string', description: 'ID del grupo (empieza con -)' },
+        threadId: { type: 'number', description: 'Opcional: ID del hilo (topic)' },
+        mensaje: { type: 'string', description: 'Contenido del mensaje a enviar' }
+      },
+      required: ['chatId', 'mensaje']
+    },
+    execute: async ({ chatId, threadId, mensaje }) => {
+      try {
+        const { getAuthorizedGroups } = await import('../db/settings.js');
+        const { bot } = await import('../bot/index.js');
+        
+        const authorized = await getAuthorizedGroups();
+        if (!authorized.includes(chatId)) return "Error: El grupo no está autorizado para que yo hable allí.";
+        
+        await bot.api.sendMessage(chatId, mensaje, { 
+            message_thread_id: threadId,
+            parse_mode: 'HTML'
+        });
+        return `✅ Mensaje enviado con éxito al grupo ${chatId}.`;
+      } catch (e: any) {
+        return `❌ Error al enviar mensaje: ${e.message}`;
+      }
+    }
   }
 };
 
