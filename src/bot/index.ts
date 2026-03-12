@@ -303,7 +303,11 @@ const handleIncomingMessage = async (ctx: Context) => {
               .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com');
           
           if (fxText !== text) {
-              await ctx.reply(fxText, { 
+              const senderName = ctx.from?.first_name || "Usuario";
+              const senderLink = `<a href="tg://user?id=${ctx.from?.id}">${senderName}</a>`;
+              const finalMsg = `👤 ${senderLink}:\n${fxText}`;
+
+              await ctx.reply(finalMsg, { 
                   parse_mode: 'HTML',
                   message_thread_id: threadIdInt
               });
