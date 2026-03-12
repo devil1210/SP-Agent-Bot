@@ -6,6 +6,38 @@ import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups
 
 export const bot = new Bot(config.telegramBotToken);
 
+// Configurar comandos visibles solo para administradores
+async function setBotCommands() {
+    const commands = [
+        { command: "features", description: "Gestiona módulos de conocimiento" },
+        { command: "persona", description: "Cambia la personalidad del bot" },
+        { command: "topics", description: "Configura el rol del bot en un hilo" },
+        { command: "groups", description: "Lista hilos y sus IDs" },
+        { command: "say", description: "Enviar mensaje remoto" },
+        { command: "manual", description: "Guía completa de comandos" }
+    ];
+
+    try {
+        // Opción A: Visible para todos los administradores en todos los grupos
+        await bot.api.setMyCommands(commands, {
+            scope: { type: "all_chat_administrators" }
+        });
+
+        // Opción B: Específico para tu ID (esto hace que solo TÚ los veas en cualquier chat)
+        for (const userId of config.telegramAllowedUserIds) {
+            await bot.api.setMyCommands(commands, {
+                scope: { type: "chat", chat_id: parseInt(userId) }
+            });
+        }
+        
+        console.log("[Bot] ✅ Comandos configurados con éxito");
+    } catch (e) {
+        console.error("[Bot] ❌ Error configurando comandos:", e);
+    }
+}
+
+setBotCommands();
+
 /**
  * Middleware para asegurar que solo usuarios autorizados puedan cambiar configuraciones
  */
