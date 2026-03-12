@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -48,24 +48,34 @@ bot.command('model', adminOnly, async (ctx) => {
 
 bot.command('persona', adminOnly, async (ctx) => {
   const input = ctx.match.trim();
-  if (!input) return await ctx.reply("💡 <b>Uso:</b>\n- <code>/persona [instrucciones]</code> (Este chat)\n- <code>/persona [group_id] [instrucciones]</code>\n- <code>/persona default</code>", { parse_mode: 'HTML' });
-
   const parts = input.split(/\s+/);
   let targetChatId = ctx.chat.id.toString();
-  let personality = input;
+  let instructions = input;
 
-  // Detectar si el primer argumento es un ID de grupo (empieza por -)
-  if (parts[0].startsWith('-')) {
+  // Caso 1: /persona -100... (Solo el ID para ver la personalidad actual)
+  if (parts.length === 1 && parts[0].startsWith('-')) {
     targetChatId = parts[0];
-    personality = parts.slice(1).join(' ');
+    const current = await getPersonality(targetChatId);
+    return await ctx.reply(`🎭 <b>Personalidad actual de <code>${targetChatId}</code>:</b>\n\n<code>${current || "Por defecto (breve, directo y emojis)"}</code>\n\n<i>Para cambiarla, escribe:</i>\n<code>/persona ${targetChatId} [nuevas instrucciones]</code>`, { parse_mode: 'HTML' });
   }
 
-  if (personality.toLowerCase() === 'default') {
+  // Caso 2: /persona [ID] [instrucciones]
+  if (parts.length > 1 && parts[0].startsWith('-')) {
+    targetChatId = parts[0];
+    instructions = parts.slice(1).join(' ');
+  } 
+  // Caso 3: /persona (sin nada, ver personalidad del chat actual)
+  else if (!input) {
+    const current = await getPersonality(targetChatId);
+    return await ctx.reply(`🎭 <b>Tu personalidad en este chat:</b>\n\n<code>${current || "Por defecto (breve, directo y emojis)"}</code>\n\n<i>Para cambiarla, escribe:</i>\n<code>/persona [nuevas instrucciones]</code>`, { parse_mode: 'HTML' });
+  }
+
+  if (instructions.toLowerCase() === 'default') {
     await setPersonality(targetChatId, "");
     return await ctx.reply(`✅ Personalidad restablecida para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
   }
 
-  await setPersonality(targetChatId, personality);
+  await setPersonality(targetChatId, instructions);
   await ctx.reply(`✅ Personalidad actualizada para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
 });
 
