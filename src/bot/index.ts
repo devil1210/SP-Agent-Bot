@@ -362,7 +362,7 @@ const handleIncomingMessage = async (ctx: Context) => {
   const fromUsername = ctx.from?.username || ctx.from?.id || "Desconocido";
   const userId = ctx.from?.id.toString();
   const isAdmin = userId && config.telegramAllowedUserIds.includes(userId);
-  const senderRole = isAdmin ? "[GRAN LÍDER]" : "[SUBORDINADO]";
+  const senderRole = isAdmin ? "[ADMIN]" : "[USER]";
   const senderName = `${ctx.from?.first_name || "Usuario"} ${senderRole}`;
   
   // Capturar texto del mensaje citado para dar contexto (Importante para hilos pasivos)
@@ -370,7 +370,7 @@ const handleIncomingMessage = async (ctx: Context) => {
   if (ctx.message?.reply_to_message) {
       const qUserId = ctx.message.reply_to_message.from?.id.toString();
       const qIsAdmin = qUserId && config.telegramAllowedUserIds.includes(qUserId);
-      const qRole = qIsAdmin ? "[GRAN LÍDER]" : "[SUBORDINADO]";
+      const qRole = qIsAdmin ? "[ADMIN]" : "[USER]";
       const quoteSender = `${ctx.message.reply_to_message.from?.first_name || "Alguien"} ${qRole}`;
       const quoteText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
       if (quoteText) {
