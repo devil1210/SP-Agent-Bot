@@ -44,6 +44,19 @@ Cambia el motor de IA (ej: `gemini-3.1-flash-lite-preview`).
 
 ---
 
+## 🛠️ Utilidades Automáticas
+
+### 🔄 Conversión de Twitter/X (FXTwitter)
+El bot corrige automáticamente los enlaces de Twitter o X para que se previsualicen correctamente:
+- **En Privado**: Con solo mandar el link, el bot lo reenvía corregido y borra el original.
+- **En Grupos**: Funciona cuando **citas (reply)** al bot con el enlace.
+- **Características**: 
+  - Menciona al autor original del enlace.
+  - Elimina el mensaje original para mantener el chat limpio.
+  - No usa IA si solo mandas el link (ahorro de recursos).
+
+---
+
 ## 🧵 Gestión de Hilos y Roles
 Configura el nivel de intervención del bot en cada hilo (Topic) de un grupo.
 
