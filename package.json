@@ -1,0 +1,23 @@
+{
+  "name": "sp-agent",
+  "version": "1.0.0",
+  "description": "Personal AI Agent with Telegram Interface",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx --require ./src/patch.cjs src/index.ts",
+    "dev": "tsx watch --require ./src/patch.cjs src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.99.1",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.32.0",
+    "punycode": "^2.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
