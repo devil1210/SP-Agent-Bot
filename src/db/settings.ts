@@ -137,3 +137,30 @@ export const revokeGroup = async (chatId: string): Promise<void> => {
   current = current.filter(id => id !== chatId);
   await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Grupos autorizados: [${current.join(', ')}]`);
 };
+
+/**
+ * Mapeo de Nombres de Hilos (Discovery)
+ */
+export const setThreadName = async (chatId: string, threadId: number, name: string): Promise<void> => {
+  await addMemory(chatId, 'assistant', `ThreadName [${threadId}]: ${name}`);
+};
+
+export const getKnownThreads = async (chatId: string): Promise<{id: number, name: string}[]> => {
+  try {
+    const history = await getHistory(chatId, 100);
+    const threadMap: Record<number, string> = { 1: 'General' };
+    
+    history
+      .filter(m => m.role === 'assistant' && m.content.includes('ThreadName ['))
+      .forEach(m => {
+        const match = m.content.match(/ThreadName \[(\d+)\]: (.*)/);
+        if (match) {
+          threadMap[parseInt(match[1])] = match[2];
+        }
+      });
+
+    return Object.entries(threadMap).map(([id, name]) => ({ id: parseInt(id), name }));
+  } catch (e) {
+    return [{ id: 1, name: 'General' }];
+  }
+};

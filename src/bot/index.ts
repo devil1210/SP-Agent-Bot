@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, setPersonality, getPassiveThreads, setPassiveThreads } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -73,11 +73,36 @@ bot.command('groups', adminOnly, async (ctx) => {
     const authorized = await getAuthorizedGroups();
     if (authorized.length === 0) return ctx.reply("No hay grupos autorizados.");
     
-    let msg = "<b>Grupos Autorizados:</b>\n\n";
+    let msg = "<b>🏰 Tus Dominios (Grupos e Hilos):</b>\n\n";
     for (const id of authorized) {
-        msg += `• <code>${id}</code>\n`;
+        msg += `📁 <b>Grupo:</b> <code>${id}</code>\n`;
+        const threads = await getKnownThreads(id);
+        const activeThreads = await getAllowedThreads(id);
+        const passiveThreads = await getPassiveThreads(id);
+
+        for (const t of threads) {
+            const isMember = activeThreads.includes(t.id);
+            const isConsultor = passiveThreads.includes(t.id);
+            const role = isMember ? '🎭' : (isConsultor ? '🧐' : '🤖');
+            msg += `  ${role} #${t.id} - <i>${t.name}</i>\n`;
+        }
+        msg += "\n";
     }
+    msg += "<i>Leyenda: 🎭 Miembro | 🧐 Consultor | 🤖 Asistente</i>";
     await ctx.reply(msg, { parse_mode: 'HTML' });
+});
+
+// Registrar hilos nuevos o modificados
+bot.on('message:forum_topic_created', async (ctx) => {
+    const name = ctx.message.forum_topic_created.name;
+    const threadId = ctx.message.message_thread_id;
+    if (threadId) await setThreadName(ctx.chat.id.toString(), threadId, name);
+});
+
+bot.on('message:forum_topic_edited', async (ctx) => {
+    const name = ctx.message.forum_topic_edited.name;
+    const threadId = ctx.message.message_thread_id;
+    if (threadId && name) await setThreadName(ctx.chat.id.toString(), threadId, name);
 });
 
 /**
