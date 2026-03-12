@@ -360,6 +360,18 @@ const handleIncomingMessage = async (ctx: Context) => {
   
   const isReplyToBot = ctx.message?.reply_to_message?.from?.username === botUsername;
   const fromUsername = ctx.from?.username || ctx.from?.id || "Desconocido";
+  const senderName = ctx.from?.first_name || "Usuario";
+  
+  // Capturar texto del mensaje citado para dar contexto (Importante para hilos pasivos)
+  let quoteContext = "";
+  if (ctx.message?.reply_to_message) {
+      const quoteSender = ctx.message.reply_to_message.from?.first_name || "Alguien";
+      const quoteText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
+      if (quoteText) {
+          quoteContext = `\n[CITADO DE ${quoteSender}]: ${quoteText}`;
+      }
+  }
+
   console.log(`[Bot] 📥 [${ctx.chat?.type}] De @${fromUsername}: "${text.substring(0, 30)}..."`);
 
   // LÓGICA DE DECISIÓN BASE
@@ -440,9 +452,9 @@ const handleIncomingMessage = async (ctx: Context) => {
       if (!shouldRespond) {
           console.log(`[Bot] Decision (Chat: ${chatId}): Mention=${isMentioned}, Reply=${isReplyToBot}, Thread=${isActiveThread}, Action=SAVE_ONLY`);
           if (shouldSaveMemory && !isNoneMode) {
-              const senderName = ctx.from?.first_name || "Usuario";
+              const contentToSave = isGroup ? `${senderName}: ${text}${quoteContext}` : `${text}${quoteContext}`;
               console.log(`[Bot] 🤐 Guardando contexto en memoria (Hilo ${isPassiveThread ? 'Pasivo' : 'Global'}): ${senderName}`);
-              await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId, ctx.message?.message_id);
+              await addMemory(chatId, 'user', contentToSave, threadId, ctx.message?.message_id);
           }
           return;
       }
@@ -456,18 +468,7 @@ const handleIncomingMessage = async (ctx: Context) => {
     console.log(`[Bot] 🧠 Iniciando procesamiento para el chat: ${chatId}`);
     await ctx.replyWithChatAction('typing');
   try {
-    const senderName = ctx.from?.first_name || "Usuario";
-    text = ctx.message?.text || ctx.message?.caption || "(Sin texto)";
-    
-    // Capturar texto del mensaje citado para dar contexto al agente
-    let quoteContext = "";
-    if (ctx.message?.reply_to_message) {
-        const quoteSender = ctx.message.reply_to_message.from?.first_name || "Alguien";
-        const quoteText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
-        if (quoteText) {
-            quoteContext = `\n[CITADO DE ${quoteSender}]: ${quoteText}`;
-        }
-    }
+    // EL TEXTO Y EL QUOTE CONTEXT YA FUERON CAPTURADOS ARRIBA
 
     const attachments: Attachment[] = [];
 
