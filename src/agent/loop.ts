@@ -40,11 +40,11 @@ export const processUserMessage = async (
       const history = await getHistory(chatId, 50, threadId);
       await addMemory(chatId, 'user', text, threadId, userMsgId);
 
-      const userModel = await getUserModel(chatId); 
-      const personality = await getPersonality(chatId);
+      const userModel = await getUserModel(chatId, threadId); 
+      const personality = await getPersonality(chatId, threadId);
       const features = await getChatFeatures(chatId);
       
-      console.log(`[Agent] Iniciando con ${history.length} mensajes de contexto.`);
+      console.log(`[Agent] Iniciando con ${history.length} mensajes de contexto. Persona: ${personality || 'Default'}`);
 
       const messages: Message[] = [
         ...history.map(m => ({ role: m.role as any, content: m.content })),

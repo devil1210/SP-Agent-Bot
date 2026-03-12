@@ -122,8 +122,9 @@ bot.command('say', adminOnly, async (ctx) => {
 
 bot.command('model', adminOnly, async (ctx) => {
   const model = ctx.match || 'gemini-3.1-flash-lite-preview';
-  await setUserModel(ctx.chat.id.toString(), model);
-  await ctx.reply(`Modelo cambiado a: \`${model}\``, { parse_mode: 'Markdown' });
+  const threadId = ctx.message?.message_thread_id?.toString();
+  await setUserModel(ctx.chat.id.toString(), model, threadId);
+  await ctx.reply(`Modelo cambiado a: \`${model}\``, { parse_mode: 'Markdown', message_thread_id: ctx.message?.message_thread_id });
 });
 
 bot.command('persona', adminOnly, async (ctx) => {
@@ -131,12 +132,13 @@ bot.command('persona', adminOnly, async (ctx) => {
   const parts = input.split(/\s+/);
   let targetChatId = ctx.chat.id.toString();
   let instructions = input;
+  const currentThreadId = ctx.message?.message_thread_id?.toString();
 
   // Caso 1: /persona -100... (Solo el ID para ver la personalidad actual)
   if (parts.length === 1 && parts[0].startsWith('-')) {
     targetChatId = parts[0];
-    const current = await getPersonality(targetChatId);
-    return await ctx.reply(`🎭 <b>Personalidad actual de <code>${targetChatId}</code>:</b>\n\n<code>${current || "Por defecto (breve, directo y emojis)"}</code>\n\n<i>Para cambiarla, escribe:</i>\n<code>/persona ${targetChatId} [nuevas instrucciones]</code>`, { parse_mode: 'HTML' });
+    const current = await getPersonality(targetChatId, currentThreadId);
+    return await ctx.reply(`🎭 <b>Personalidad actual [ID: ${targetChatId}]:</b>\n\n<code>${current || "Por defecto"}</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
   }
 
   // Caso 2: /persona [ID] [instrucciones]
@@ -146,17 +148,17 @@ bot.command('persona', adminOnly, async (ctx) => {
   } 
   // Caso 3: /persona (sin nada, ver personalidad del chat actual)
   else if (!input) {
-    const current = await getPersonality(targetChatId);
-    return await ctx.reply(`🎭 <b>Tu personalidad en este chat:</b>\n\n<code>${current || "Por defecto (breve, directo y emojis)"}</code>\n\n<i>Para cambiarla, escribe:</i>\n<code>/persona [nuevas instrucciones]</code>`, { parse_mode: 'HTML' });
+    const current = await getPersonality(targetChatId, currentThreadId);
+    return await ctx.reply(`🎭 <b>Tu personalidad en este hilo:</b>\n\n<code>${current || "Por defecto"}</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
   }
 
   if (instructions.toLowerCase() === 'default') {
-    await setPersonality(targetChatId, "");
-    return await ctx.reply(`✅ Personalidad restablecida para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+    await setPersonality(targetChatId, "", currentThreadId);
+    return await ctx.reply(`✅ Personalidad restablecida en este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
   }
 
-  await setPersonality(targetChatId, instructions);
-  await ctx.reply(`✅ Personalidad actualizada para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+  await setPersonality(targetChatId, instructions, currentThreadId);
+  await ctx.reply(`✅ Personalidad actualizada para este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
 });
 
 bot.command('groups', adminOnly, async (ctx) => {

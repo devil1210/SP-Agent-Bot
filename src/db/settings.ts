@@ -6,13 +6,22 @@ import { db, getHistory, addMemory, MemoryEntry } from './index.js';
 const GLOBAL_CONFIG_ID = 'system_global_config';
 
 /**
- * Obtiene el historial de un chat sin filtrar por hilos para configuraciones.
+ * Obtiene el historial de un chat filtrando por hilos si se proporciona.
  */
-const getSettingsHistory = async (chatId: string, limit: number = 100): Promise<MemoryEntry[]> => {
-  const { data, error } = await db
+const getSettingsHistory = async (chatId: string, threadId?: string, limit: number = 100): Promise<MemoryEntry[]> => {
+  let query = db
     .from('memory')
     .select('*')
-    .eq('user_id', chatId)
+    .eq('user_id', chatId);
+  
+  if (threadId) {
+    query = query.eq('thread_id', threadId);
+  } else {
+    // Si no hay threadId, buscamos los que no tengan thread_id (configuraciones globales del chat)
+    query = query.is('thread_id', null);
+  }
+
+  const { data, error } = await query
     .order('id', { ascending: false })
     .limit(limit);
 
@@ -23,9 +32,9 @@ const getSettingsHistory = async (chatId: string, limit: number = 100): Promise<
 /**
  * Obtiene el modelo configurado para un usuario/chat.
  */
-export const getUserModel = async (chatId: string): Promise<string> => {
+export const getUserModel = async (chatId: string, threadId?: string): Promise<string> => {
   try {
-    const history = await getSettingsHistory(chatId); 
+    const history = await getSettingsHistory(chatId, threadId); 
     const modelSetMsg = history
       .filter(m => m.role === 'assistant' && m.content.includes('Modelo cambiado a:'))
       .pop();
@@ -69,16 +78,16 @@ export const setChatFeatures = async (chatId: string, features: string[]): Promi
   await addMemory(chatId, 'assistant', `Features habilitadas: [${features.join(', ')}]`);
 };
 
-export const setUserModel = async (chatId: string, model: string): Promise<void> => {
-  await addMemory(chatId, 'assistant', `Modelo cambiado a: ${model}`);
+export const setUserModel = async (chatId: string, model: string, threadId?: string): Promise<void> => {
+  await addMemory(chatId, 'assistant', `Modelo cambiado a: ${model}`, threadId);
 };
 
 /**
  * Gestión de la Personalidad (/persona) por chat/grupo
  */
-export const getPersonality = async (chatId: string): Promise<string | null> => {
+export const getPersonality = async (chatId: string, threadId?: string): Promise<string | null> => {
   try {
-    const history = await getSettingsHistory(chatId);
+    const history = await getSettingsHistory(chatId, threadId);
     const persMsg = history
       .filter(m => m.role === 'assistant' && m.content.includes('Personalidad definida:'))
       .pop();
@@ -93,8 +102,8 @@ export const getPersonality = async (chatId: string): Promise<string | null> => 
   }
 };
 
-export const setPersonality = async (chatId: string, persona: string): Promise<void> => {
-  await addMemory(chatId, 'assistant', `Personalidad definida: ${persona}`);
+export const setPersonality = async (chatId: string, persona: string, threadId?: string): Promise<void> => {
+  await addMemory(chatId, 'assistant', `Personalidad definida: ${persona}`, threadId);
 };
 
 /**
