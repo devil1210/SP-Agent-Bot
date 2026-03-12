@@ -450,13 +450,16 @@ const handleIncomingMessage = async (ctx: Context) => {
       }
   }
 
+  // LÓGICA DE FILTRADO (Evitar procesar risas o mensajes vacíos incluso en hilos activos)
+  const isTrivial = text.length < 10 && /^(jaj|jej|lol|xd|buu|bu|ah|ok|sip|no|si|pos|pos no|jeje|jajaja|buuu|buuuuu|buuuuuuu|jajajaja|😂|🤣|👍|🫡|🤔|🙄|a|buu|buuu|buuuu|buuuuuu)(jaj|jej|lol|xd|!|\.|\?|u|a|e|k|\s)*$/i.test(text.trim());
+
   // LÓGICA DE DECISIÓN FINAL PARA IA
   if (isGroup) {
-      const shouldRespond = isMentioned || isReplyToBot || isActiveThread;
+      const substantiveReply = isReplyToBot && !isTrivial;
+      const shouldRespond = isMentioned || (isPassiveThread ? substantiveReply : (isActiveThread && !isTrivial));
       const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
       if (!shouldRespond) {
-          console.log(`[Bot] Decision (Chat: ${chatId}): Mention=${isMentioned}, Reply=${isReplyToBot}, Thread=${isActiveThread}, Action=SAVE_ONLY`);
           if (shouldSaveMemory && !isNoneMode) {
               const contentToSave = isGroup ? `${senderName}: ${text}${quoteContext}` : `${text}${quoteContext}`;
               console.log(`[Bot] 🤐 Guardando contexto en memoria (Hilo ${isPassiveThread ? 'Pasivo' : 'Global'}): ${senderName}`);
@@ -465,7 +468,7 @@ const handleIncomingMessage = async (ctx: Context) => {
           return;
       }
 
-      console.log(`[Bot] Decision (Chat: ${chatId}): Mention=${isMentioned}, Reply=${isReplyToBot}, Thread=${isActiveThread}, Action=RESPOND`);
+      console.log(`[Bot] Decision (Chat: ${chatId}): Action=RESPOND (Mention=${isMentioned}, Msg=${text.substring(0, 15)}...)`);
   }
 
   console.log(`[Bot] 🎯 Respondiendo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Activo: ${isGroup ? (isActiveThread ? 'Sí' : 'No') : 'Privado'})`);
