@@ -32,6 +32,13 @@ Configura cómo habla el bot. Puedes hacerlo desde cualquier chat:
 - **Consultar**: `/persona` o `/persona -100123456789` (Muestra la personalidad actual).
 - **Restablecer**: `/persona default` (Vuelve al estilo breve y directo).
 
+### `/features [modulo]`
+Activa o desactiva módulos de conocimiento específicos para un grupo.
+- **Módulos**: `library` (Biblioteca), `dev_prod` (ZeePub Main), `dev_test` (ZeePub V4).
+- **Uso**: `/features library` (Activa/Desactiva en el chat actual).
+- **Desde Privado**: `/features [ID_GRUPO] [modulo]`.
+- **Estado**: `/features` (Muestra qué hay activo).
+
 ### `/model [nombre_modelo]`
 Cambia el motor de IA (ej: `gemini-3.1-flash-lite-preview`).
 

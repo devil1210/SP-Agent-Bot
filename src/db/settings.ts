@@ -25,6 +25,33 @@ export const getUserModel = async (chatId: string): Promise<string> => {
   }
 };
 
+/**
+ * Gestión de Funcionalidades (Features) por chat/grupo
+ * Posibles: 'library', 'dev_prod', 'dev_test'
+ */
+export const getChatFeatures = async (chatId: string): Promise<string[]> => {
+  try {
+    const history = await getHistory(chatId, 100);
+    const msg = history
+      .filter(m => m.role === 'assistant' && m.content.includes('Features habilitadas:'))
+      .pop();
+
+    if (msg) {
+      const match = msg.content.match(/Features habilitadas: \[(.*)\]/);
+      if (match && match[1]) {
+        return match[1].split(',').map(s => s.trim()).filter(s => s.length > 0);
+      }
+    }
+    return [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const setChatFeatures = async (chatId: string, features: string[]): Promise<void> => {
+  await addMemory(chatId, 'assistant', `Features habilitadas: [${features.join(', ')}]`);
+};
+
 export const setUserModel = async (chatId: string, model: string): Promise<void> => {
   await addMemory(chatId, 'assistant', `Modelo cambiado a: ${model}`);
 };

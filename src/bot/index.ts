@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -158,6 +158,49 @@ bot.command('revokegroup', adminOnly, async (ctx) => {
   const chatId = ctx.match.trim() || ctx.chat.id.toString();
   await revokeGroup(chatId);
   await ctx.reply(`❌ Grupo \`${chatId}\` revocado.`, { parse_mode: 'Markdown' });
+});
+
+/**
+ * Gestión de Topics (Hilos de Foro)
+ */
+bot.command('features', adminOnly, async (ctx) => {
+    const input = ctx.match.trim();
+    const parts = input.split(/\s+/);
+    let targetChatId = ctx.chat.id.toString();
+    let actionParts = parts;
+
+    if (parts[0].startsWith('-')) {
+        targetChatId = parts[0];
+        actionParts = parts.slice(1);
+    }
+
+    const current = await getChatFeatures(targetChatId);
+
+    if (actionParts.length === 0) {
+        return await ctx.reply(`🧩 <b>Módulos de conocimiento en <code>${targetChatId}</code>:</b>\n\n` +
+            `• 📚 <code>library</code>: ${current.includes('library') ? '✅ Activo' : '❌ Inactivo'}\n` +
+            `• 🏭 <code>dev_prod</code> (Main): ${current.includes('dev_prod') ? '✅ Activo' : '❌ Inactivo'}\n` +
+            `• 🧪 <code>dev_test</code> (V4): ${current.includes('dev_test') ? '✅ Activo' : '❌ Inactivo'}\n\n` +
+            `<i>Para activar/desactivar uno, escribe:</i>\n<code>/features ${targetChatId.startsWith('-') ? targetChatId + ' ' : ''}[modulo]</code>`, { parse_mode: 'HTML' });
+    }
+
+    const feature = actionParts[0].toLowerCase();
+    const valid = ['library', 'dev_prod', 'dev_test'];
+
+    if (!valid.includes(feature)) {
+        return await ctx.reply(`❌ Módulo no válido. Opciones: <code>${valid.join(', ')}</code>`, { parse_mode: 'HTML' });
+    }
+
+    let newList: string[];
+    if (current.includes(feature)) {
+        newList = current.filter(f => f !== feature);
+        await setChatFeatures(targetChatId, newList);
+        await ctx.reply(`❌ Módulo <code>${feature}</code> desactivado para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+    } else {
+        newList = [...current, feature];
+        await setChatFeatures(targetChatId, newList);
+        await ctx.reply(`✅ Módulo <code>${feature}</code> activado para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+    }
 });
 
 /**

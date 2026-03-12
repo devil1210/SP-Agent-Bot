@@ -1,7 +1,7 @@
 import { callLLM, Message } from './llm.js';
 import { getToolsDefinition, executeTool } from '../tools/index.js';
 import { getHistory, addMemory } from '../db/index.js';
-import { getUserModel, getPersonality } from '../db/settings.js';
+import { getUserModel, getPersonality, getChatFeatures } from '../db/settings.js';
 
 /**
  * Escapa caracteres que rompen el HTML de Telegram pero mantiene las etiquetas permitidas
@@ -41,6 +41,7 @@ export const processUserMessage = async (
       const history = await getHistory(chatId, 30, threadId);
       const userModel = await getUserModel(chatId); 
       const personality = await getPersonality(chatId);
+      const features = await getChatFeatures(chatId);
       
       const messages: Message[] = [
         ...history.map(m => ({ role: m.role as any, content: m.content })),
@@ -72,7 +73,7 @@ export const processUserMessage = async (
       while (iterations < MAX_ITERATIONS) {
           iterations++;
           console.log(`[Agent:Loop] 🔄 Iteración ${iterations}...`);
-          const llmRes = await callLLM(messages, toolsDef, userModel, personality);
+          const llmRes = await callLLM(messages, toolsDef, userModel, personality, features);
           console.log(`[Agent:Loop] 🤖 Motor activo: ${llmRes.provider}`);
           const responseMessage = llmRes.message;
 

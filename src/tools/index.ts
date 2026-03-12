@@ -19,8 +19,12 @@ export const tools: Record<string, Tool> = {
       },
       required: ['query'],
     },
-    execute: async ({ query }) => {
+    execute: async ({ query }, { chatId }) => {
       try {
+        const { getChatFeatures } = await import('../db/settings.js');
+        const features = await getChatFeatures(chatId);
+        if (!features.includes('library')) return "Error: La función de consulta de biblioteca no está habilitada en este chat.";
+
         // Buscamos en la tabla de series usando los nombres de columna REALES de la DB
         const { data: seriesData, error: seriesError } = await db
           .from('series')
@@ -120,8 +124,12 @@ export const tools: Record<string, Tool> = {
         recientes: { type: 'boolean', description: 'Si es true, busca libros añadidos en los últimos 7 días.' }
       }
     },
-    execute: async ({ maquetador, traductor, autor, recientes }) => {
+    execute: async ({ maquetador, traductor, autor, recientes }, { chatId }) => {
       try {
+        const { getChatFeatures } = await import('../db/settings.js');
+        const features = await getChatFeatures(chatId);
+        if (!features.includes('library')) return "Error: La función de búsqueda avanzada no está habilitada en este chat.";
+
         let queryBuilder = db.from('books').select('title, layout_by, translator, author, indexed_at', { count: 'exact' });
 
         if (maquetador) queryBuilder = queryBuilder.ilike('layout_by', `%${maquetador}%`);

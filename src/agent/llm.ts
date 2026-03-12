@@ -17,26 +17,43 @@ const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-function buildSystemPrompt(activeProvider: string, personality: string | null) {
+function buildSystemPrompt(activeProvider: string, personality: string | null, features: string[] = []) {
     const now = new Date();
     const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     
-const base = `Eres SP-Agent. Hoy es ${dateStr}.
+    let base = `Eres SP-Agent. Hoy es ${dateStr}.
 REGLAS CRÍTICAS:
 1. ID: Tu motor es ${activeProvider}.
-2. SIN SALUDOS: PROHIBIDO saludar (Hola, Hola de nuevo) o hacer introducciones formales. Ve directo al grano.
-3. SIN MARKDOWN: PROHIBIDO usar asteriscos (**), almohadillas (###) o backticks (\`). 
-   - SI QUIERES NEGRITA: Usa solo <b>texto</b>.
-4. FORMATO HTML: Usa ÚNICAMENTE etiquetas HTML permitidas (<b>, <i>, <a>).
-5. NOTICIAS EN LISTA: Cada punto de una lista de noticias DEBE ser un link HTML.
-   - EJEMPLO: "• <b><a href='URL'>Título</a></b>: descripción."
-6. IMÁGENES: Solo si es relevante. Máximo 1.
-   - REGLA: Filtra URLs con años antiguos (2019-2024). Solo 2025/2026.
-   - FORMATO: Envía "IMAGE_URL_DETECTED: URL" al final del mensaje.
-7. ESTILO: Muy breve, directo y usa muchos emojis. Eres un integrante más de la conversación.
-8. SILENCIO INTELIGENTE: Si estás en un hilo habilitado y el mensaje no es una pregunta, una petición directa o algo relevante donde puedas aportar valor real, responde ÚNICAMENTE con la palabra [SILENCE]. No digas nada más.`;
-    
-    return personality ? `${base}\nPERSONALIDAD:\n${personality}` : base;
+2. SIN SALUDOS: PROHIBIDO saludar. Ve directo al grano.
+3. SIN MARKDOWN: PROHIBIDO usar asteriscos o backticks. Usa solo etiquetas HTML permitidas.
+4. FORMATO HTML: Usa <b>, <i>, <a>.
+5. NOTICIAS EN LISTA: Cada punto DEBE ser un link HTML.
+6. IMÁGENES: Solo si es relevante (2025/2026).
+7. ESTILO: Muy breve, directo y usa muchos emojis.
+8. SILENCIO INTELIGENTE: Si no puedes aportar valor real, responde [SILENCE].`;
+
+    if (features.includes('dev_prod')) {
+        base += `\n\n<b>CONOCIMIENTO EXPERTO (PRODUCCIÓN):</b>
+Manejas la rama <code>main</code> de ZeePub-Bot.
+- Repositorio: <a href='https://github.com/devil1210/zeepub-bot'>ZeePub-Bot (Main)</a>
+- Estado: Estable / Producción.
+- Características: Sistema basado en Python, con servicios de scaneo de libros, publicación en canales de Telegram y gestión de biblioteca via SQL (PostgreSQL).`;
+    }
+
+    if (features.includes('dev_test')) {
+        base += `\n\n<b>CONOCIMIENTO EXPERTO (EXPERIMENTAL):</b>
+Manejas la rama <code>v4-agency-rebuild</code> de ZeePub-Bot.
+- Repositorio: <a href='https://github.com/devil1210/zeepub-bot/tree/v4-agency-rebuild'>ZeePub-Bot (V4 Agency)</a>
+- Estado: En desarrollo activo / Reconstrucción total.
+- Características: Nueva arquitectura basada en TypeScript/Node.js, integrando sistemas de Agentes IA más avanzados, mejores flujos de trabajo y mayor modularidad.`;
+    }
+
+    if (features.includes('library')) {
+        base += `\n\n<b>CONOCIMIENTO DE BIBLIOTECA:</b>
+Tienes acceso a la base de datos de libros de ZeePub. Puedes buscar libros, series, maquetadores y novedades.`;
+    }
+
+    return personality ? `${base}\n\nPERSONALIDAD:\n${personality}` : base;
 }
 
 function cleanMessages(messages: Message[]): any[] {
@@ -103,7 +120,8 @@ export const callLLM = async (
     messages: Message[], 
     toolsDefinition: any[], 
     model: string = 'gemini-3.1-flash-lite-preview',
-    personality: string | null = null
+    personality: string | null = null,
+    features: string[] = []
 ): Promise<LLMResponse> => {
   
   const baseMessages = cleanMessages(messages);
@@ -125,7 +143,7 @@ export const callLLM = async (
   const geminiModelId = targetModel.startsWith('models/') ? targetModel : `models/${targetModel}`;
   const geminiBody: any = {
     model: geminiModelId,
-    messages: [{ role: 'system', content: buildSystemPrompt(geminiProvider, personality) }, ...baseMessages],
+    messages: [{ role: 'system', content: buildSystemPrompt(geminiProvider, personality, features) }, ...baseMessages],
     temperature: 0.1
   };
   if (tools) geminiBody.tools = tools;
@@ -142,7 +160,7 @@ export const callLLM = async (
   const groqProvider = `Groq (${config.groqModel})`;
   const groqBody: any = {
     model: config.groqModel,
-    messages: [{ role: 'system', content: buildSystemPrompt(groqProvider, personality) }, ...baseMessages],
+    messages: [{ role: 'system', content: buildSystemPrompt(groqProvider, personality, features) }, ...baseMessages],
     temperature: 0.1
   };
   if (tools) {
@@ -162,7 +180,7 @@ export const callLLM = async (
   const orProvider = `OpenRouter (${config.openRouterModel})`;
   const orBody: any = {
     model: config.openRouterModel,
-    messages: [{ role: 'system', content: buildSystemPrompt(orProvider, personality) }, ...baseMessages],
+    messages: [{ role: 'system', content: buildSystemPrompt(orProvider, personality, features) }, ...baseMessages],
     temperature: 0.1
   };
   if (tools) orBody.tools = tools;
