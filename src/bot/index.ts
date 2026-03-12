@@ -47,15 +47,37 @@ bot.command('model', adminOnly, async (ctx) => {
 });
 
 bot.command('persona', adminOnly, async (ctx) => {
-  const instructions = ctx.match.trim();
-  const chatId = ctx.chat.id.toString();
-  if (!instructions) return await ctx.reply("Uso: `/persona eres un pirata`", { parse_mode: 'Markdown' });
-  if (instructions.toLowerCase() === 'default') {
-    await setPersonality(chatId, "");
-    return await ctx.reply("✅ Personalidad restablecida.", { parse_mode: 'Markdown' });
+  const input = ctx.match.trim();
+  if (!input) return await ctx.reply("💡 <b>Uso:</b>\n- <code>/persona [instrucciones]</code> (Este chat)\n- <code>/persona [group_id] [instrucciones]</code>\n- <code>/persona default</code>", { parse_mode: 'HTML' });
+
+  const parts = input.split(/\s+/);
+  let targetChatId = ctx.chat.id.toString();
+  let personality = input;
+
+  // Detectar si el primer argumento es un ID de grupo (empieza por -)
+  if (parts[0].startsWith('-')) {
+    targetChatId = parts[0];
+    personality = parts.slice(1).join(' ');
   }
-  await setPersonality(chatId, instructions);
-  await ctx.reply(`✅ Personalidad actualizada para este chat.`, { parse_mode: 'Markdown' });
+
+  if (personality.toLowerCase() === 'default') {
+    await setPersonality(targetChatId, "");
+    return await ctx.reply(`✅ Personalidad restablecida para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+  }
+
+  await setPersonality(targetChatId, personality);
+  await ctx.reply(`✅ Personalidad actualizada para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+});
+
+bot.command('groups', adminOnly, async (ctx) => {
+    const authorized = await getAuthorizedGroups();
+    if (authorized.length === 0) return ctx.reply("No hay grupos autorizados.");
+    
+    let msg = "<b>Grupos Autorizados:</b>\n\n";
+    for (const id of authorized) {
+        msg += `• <code>${id}</code>\n`;
+    }
+    await ctx.reply(msg, { parse_mode: 'HTML' });
 });
 
 /**
@@ -77,47 +99,72 @@ bot.command('revokegroup', adminOnly, async (ctx) => {
  * Gestión de Topics (Hilos de Foro)
  */
 bot.command('topics', adminOnly, async (ctx) => {
-  const chatId = ctx.chat.id.toString();
-  const threadId = ctx.message?.message_thread_id;
-  const action = ctx.match.trim().toLowerCase();
+  const input = ctx.match.trim();
+  const parts = input.split(/\s+/);
   
-  let active = await getAllowedThreads(chatId);
-  let consultor = await getPassiveThreads(chatId);
+  let targetChatId = ctx.chat.id.toString();
+  let action = "";
+  let targetThreadId: number | undefined = ctx.message?.message_thread_id;
 
-  const idToToggle = threadId !== undefined ? threadId : 1;
-  const label = idToToggle === 1 && threadId === undefined ? 'General' : `#${idToToggle}`;
+  // Lógica de detección de argumentos:
+  // Modo 1: /topics [miembro|consultor|...] (En el chat/hilo actual)
+  // Modo 2: /topics [group_id] [miembro|consultor|...] (Hilo general del grupo)
+  // Modo 3: /topics [group_id] [thread_id] [miembro|consultor|...] (Hilo específico)
+
+  if (parts[0].startsWith('-')) {
+    targetChatId = parts[0];
+    if (parts.length === 2) {
+      action = parts[1].toLowerCase();
+      targetThreadId = 1; // General por defecto si se da group_id
+    } else if (parts.length >= 3) {
+      targetThreadId = parseInt(parts[1]);
+      action = parts[2].toLowerCase();
+    }
+  } else {
+    action = parts[0].toLowerCase();
+  }
+
+  if (!action) {
+     return await ctx.reply("💡 <b>Uso:</b>\n- En el grupo: <code>/topics miembro/consultor/asistente</code>\n- En privado: <code>/topics [group_id] [thread_id] [rol]</code>", { parse_mode: 'HTML' });
+  }
+
+  let active = await getAllowedThreads(targetChatId);
+  let consultor = await getPassiveThreads(targetChatId);
+
+  const finalThreadId = targetThreadId !== undefined ? targetThreadId : 1;
+  const label = `en <code>${targetChatId}</code> (Hilo ${finalThreadId === 1 && targetThreadId === undefined ? 'General' : '#' + finalThreadId})`;
 
   if (action === 'miembro') {
-    active.push(idToToggle);
+    active.push(finalThreadId);
     active = [...new Set(active)];
-    consultor = consultor.filter((id: number) => id !== idToToggle);
-    await setAllowedThreads(chatId, active);
-    await setPassiveThreads(chatId, consultor);
-    await ctx.reply(`🎭 <b>Hilo ${label}: Modo MIEMBRO</b>\nParticipación activa. Leo todo y respondo cuando sea relevante.`, { parse_mode: 'HTML' });
+    consultor = consultor.filter((id: number) => id !== finalThreadId);
+    await setAllowedThreads(targetChatId, active);
+    await setPassiveThreads(targetChatId, consultor);
+    await ctx.reply(`🎭 <b>Modo MIEMBRO</b> configurado ${label}.`, { parse_mode: 'HTML' });
   } 
   else if (action === 'consultor') {
-    consultor.push(idToToggle);
+    consultor.push(finalThreadId);
     consultor = [...new Set(consultor)];
-    active = active.filter((id: number) => id !== idToToggle);
-    await setAllowedThreads(chatId, active);
-    await setPassiveThreads(chatId, consultor);
-    await ctx.reply(`🧐 <b>Hilo ${label}: Modo CONSULTOR</b>\nLeo todo para tener contexto, pero solo respondo si me mencionas o citas.`, { parse_mode: 'HTML' });
+    active = active.filter((id: number) => id !== finalThreadId);
+    await setAllowedThreads(targetChatId, active);
+    await setPassiveThreads(targetChatId, consultor);
+    await ctx.reply(`🧐 <b>Modo CONSULTOR</b> configurado ${label}.`, { parse_mode: 'HTML' });
   }
   else if (action === 'asistente' || action === 'disable') {
-    active = active.filter((id: number) => id !== idToToggle);
-    consultor = consultor.filter((id: number) => id !== idToToggle);
-    await setAllowedThreads(chatId, active);
-    await setPassiveThreads(chatId, consultor);
-    const msg = action === 'disable' ? `❌ <b>Hilo ${label}</b>: Deshabilitado.` : `🤖 <b>Hilo ${label}: Modo ASISTENTE</b>\nSolo respondo si me mencionas directamente. Sin memoria de charla ajena.`;
-    await ctx.reply(msg, { parse_mode: 'HTML' });
+    active = active.filter((id: number) => id !== finalThreadId);
+    consultor = consultor.filter((id: number) => id !== finalThreadId);
+    await setAllowedThreads(targetChatId, active);
+    await setPassiveThreads(targetChatId, consultor);
+    const msg = action === 'disable' ? `❌ <b>Deshabilitado</b>` : `🤖 <b>Modo ASISTENTE</b>`;
+    await ctx.reply(`${msg} ${label}.`, { parse_mode: 'HTML' });
   }
   else if (action === 'all') {
-    await setAllowedThreads(chatId, []);
-    await setPassiveThreads(chatId, []);
-    await ctx.reply(`🌐 <b>Modo GLOBAL</b>: Activo en todos los hilos (Modo Consultor por defecto).`, { parse_mode: 'HTML' });
+    await setAllowedThreads(targetChatId, []);
+    await setPassiveThreads(targetChatId, []);
+    await ctx.reply(`🌐 <b>Modo GLOBAL</b> configurado para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
   }
   else {
-    await ctx.reply("💡 <b>Uso:</b>\n- <code>/topics miembro</code>\n- <code>/topics consultor</code>\n- <code>/topics asistente</code>\n- <code>/topics disable</code>", { parse_mode: 'HTML' });
+    await ctx.reply("❌ Acción no reconocida. Usa: miembro, consultor, asistente, disable o all.", { parse_mode: 'HTML' });
   }
 });
 
