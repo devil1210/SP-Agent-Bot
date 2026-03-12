@@ -360,12 +360,18 @@ const handleIncomingMessage = async (ctx: Context) => {
   
   const isReplyToBot = ctx.message?.reply_to_message?.from?.username === botUsername;
   const fromUsername = ctx.from?.username || ctx.from?.id || "Desconocido";
-  const senderName = ctx.from?.first_name || "Usuario";
+  const userId = ctx.from?.id.toString();
+  const isAdmin = userId && config.telegramAllowedUserIds.includes(userId);
+  const senderRole = isAdmin ? "[GRAN LÍDER]" : "[SUBORDINADO]";
+  const senderName = `${ctx.from?.first_name || "Usuario"} ${senderRole}`;
   
   // Capturar texto del mensaje citado para dar contexto (Importante para hilos pasivos)
   let quoteContext = "";
   if (ctx.message?.reply_to_message) {
-      const quoteSender = ctx.message.reply_to_message.from?.first_name || "Alguien";
+      const qUserId = ctx.message.reply_to_message.from?.id.toString();
+      const qIsAdmin = qUserId && config.telegramAllowedUserIds.includes(qUserId);
+      const qRole = qIsAdmin ? "[GRAN LÍDER]" : "[SUBORDINADO]";
+      const quoteSender = `${ctx.message.reply_to_message.from?.first_name || "Alguien"} ${qRole}`;
       const quoteText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
       if (quoteText) {
           quoteContext = `\n[CITADO DE ${quoteSender}]: ${quoteText}`;
