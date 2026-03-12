@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, setPersonality } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, setPersonality, getPassiveThreads, setPassiveThreads } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -80,35 +80,44 @@ bot.command('topics', adminOnly, async (ctx) => {
   const chatId = ctx.chat.id.toString();
   const threadId = ctx.message?.message_thread_id;
   const action = ctx.match.trim().toLowerCase();
-  let allowed = await getAllowedThreads(chatId);
+  
+  let active = await getAllowedThreads(chatId);
+  let consultor = await getPassiveThreads(chatId);
 
-    if (action === 'enable') {
-      // En los hilos "General", el threadId suele ser undefined o 1. Lo normalizamos a 1.
-      const idToEnable = threadId !== undefined ? threadId : 1;
-      if (!allowed.includes(idToEnable)) {
-        allowed.push(idToEnable);
-        await setAllowedThreads(chatId, allowed);
-      }
-      const label = idToEnable === 1 && threadId === undefined ? 'General' : `#${idToEnable}`;
-      await ctx.reply(`✅ Hilo <b>${label}</b> habilitado.`, { parse_mode: 'HTML' });
-    } 
-    else if (action === 'disable') {
-      const idToDisable = threadId !== undefined ? threadId : 1;
-      allowed = allowed.filter(id => id !== idToDisable);
-      await setAllowedThreads(chatId, allowed);
-      await ctx.reply(`❌ Hilo deshabilitado para el bot.`, { parse_mode: 'HTML' });
-    }
-// ... (omitiendo el resto para el replace_file_content)
+  const idToToggle = threadId !== undefined ? threadId : 1;
+  const label = idToToggle === 1 && threadId === undefined ? 'General' : `#${idToToggle}`;
+
+  if (action === 'miembro') {
+    active.push(idToToggle);
+    active = [...new Set(active)];
+    consultor = consultor.filter((id: number) => id !== idToToggle);
+    await setAllowedThreads(chatId, active);
+    await setPassiveThreads(chatId, consultor);
+    await ctx.reply(`🎭 <b>Hilo ${label}: Modo MIEMBRO</b>\nParticipación activa. Leo todo y respondo cuando sea relevante.`, { parse_mode: 'HTML' });
+  } 
+  else if (action === 'consultor') {
+    consultor.push(idToToggle);
+    consultor = [...new Set(consultor)];
+    active = active.filter((id: number) => id !== idToToggle);
+    await setAllowedThreads(chatId, active);
+    await setPassiveThreads(chatId, consultor);
+    await ctx.reply(`🧐 <b>Hilo ${label}: Modo CONSULTOR</b>\nLeo todo para tener contexto, pero solo respondo si me mencionas o citas.`, { parse_mode: 'HTML' });
+  }
+  else if (action === 'asistente' || action === 'disable') {
+    active = active.filter((id: number) => id !== idToToggle);
+    consultor = consultor.filter((id: number) => id !== idToToggle);
+    await setAllowedThreads(chatId, active);
+    await setPassiveThreads(chatId, consultor);
+    const msg = action === 'disable' ? `❌ <b>Hilo ${label}</b>: Deshabilitado.` : `🤖 <b>Hilo ${label}: Modo ASISTENTE</b>\nSolo respondo si me mencionas directamente. Sin memoria de charla ajena.`;
+    await ctx.reply(msg, { parse_mode: 'HTML' });
+  }
   else if (action === 'all') {
     await setAllowedThreads(chatId, []);
-    await ctx.reply(`🌐 Escuchando en todos los hilos del grupo.`, { parse_mode: 'Markdown' });
-  }
-  else if (action === 'none') {
-    await setAllowedThreads(chatId, [-1]);
-    await ctx.reply(`🔇 No escuchando en ningún hilo por defecto (modo silencioso).`, { parse_mode: 'Markdown' });
+    await setPassiveThreads(chatId, []);
+    await ctx.reply(`🌐 <b>Modo GLOBAL</b>: Activo en todos los hilos (Modo Consultor por defecto).`, { parse_mode: 'HTML' });
   }
   else {
-    await ctx.reply("Uso: `/topics enable`, `/topics disable`, `/topics all` o `/topics none`.", { parse_mode: 'Markdown' });
+    await ctx.reply("💡 <b>Uso:</b>\n- <code>/topics miembro</code>\n- <code>/topics consultor</code>\n- <code>/topics asistente</code>\n- <code>/topics disable</code>", { parse_mode: 'HTML' });
   }
 });
 
@@ -128,45 +137,40 @@ const handleIncomingMessage = async (ctx: Context) => {
     // 1. Verificación de Seguridad para Grupos
     if (isGroup) {
         const authorized = await getAuthorizedGroups();
-        console.log(`[Bot] Grupos autorizados actuales: ${JSON.stringify(authorized)}`);
-        
         if (!authorized.includes(chatId)) {
-            console.warn(`[Bot] Grupo ${chatId} NO autorizado.`);
-            await ctx.reply("⛔ Este grupo no está autorizado para usar SP-Agent. Contacta con mi dueño.");
             await ctx.leaveChat();
             return;
         }
 
-        // 2. Filtrar por Forum Topics (Threads)
+        // 2. Obtener configuraciones de hilos
         const allowedThreads = await getAllowedThreads(chatId);
-        const isNoneMode = allowedThreads.length === 1 && allowedThreads[0] === -1;
+        const passiveThreads = await getPassiveThreads(chatId);
         
+        const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
+        const isActiveThread = allowedThreads.includes(currentThread);
+        const isPassiveThread = passiveThreads.includes(currentThread);
+        const isAllMode = allowedThreads.length === 0 && passiveThreads.length === 0;
+        const isNoneMode = allowedThreads.includes(-1);
+
         // 3. Verificar mención/cita
         const text = ctx.message?.text || ctx.message?.caption || "";
         const isMentioned = text.includes(`@${ctx.me.username}`);
         const isReplyToBot = ctx.message?.reply_to_message?.from?.id === ctx.me.id;
 
-        const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
-        const isThreadExplicitlyAllowed = allowedThreads.includes(currentThread);
-        const isAllMode = allowedThreads.length === 0;
+        // LÓGICA DE DECISIÓN
+        const shouldRespond = isMentioned || isReplyToBot || isActiveThread;
+        const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
-        if (!isMentioned && !isReplyToBot && !isThreadExplicitlyAllowed) {
-            // Si no hay mención ni es un hilo explícitamente habilitado, solo guardamos en memoria
-            if (isNoneMode) return; 
-            const senderName = ctx.from?.first_name || "Usuario";
-            console.log(`[Bot] 🤐 Silencio en grupo: Mensaje de ${senderName} guardado en memoria.`);
-            
-            if (isAllMode || isThreadExplicitlyAllowed) {
-                 await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
-            } else if (allowedThreads.length > 0 && !isThreadExplicitlyAllowed) {
-                // No habilitado y no en modo "todos", ignoramos completamente
-            } else {
-                 await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
+        if (!shouldRespond) {
+            if (shouldSaveMemory && !isNoneMode) {
+                const senderName = ctx.from?.first_name || "Usuario";
+                console.log(`[Bot] 🤐 Guardando contexto en memoria (Hilo ${isPassiveThread ? 'Pasivo' : 'Global'}): ${senderName}`);
+                await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
             }
             return;
-        } else {
-            console.log(`[Bot] 🎯 Respondiendo en grupo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Habilitado: ${isThreadExplicitlyAllowed})`);
         }
+
+        console.log(`[Bot] 🎯 Respondiendo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Activo: ${isActiveThread})`);
     }
 
     // 4. Responder

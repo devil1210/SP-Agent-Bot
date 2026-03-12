@@ -79,6 +79,29 @@ export const setAllowedThreads = async (chatId: string, threadIds: number[]): Pr
   await addMemory(chatId, 'assistant', `Topics permitidos: [${threadIds.join(', ')}]`);
 };
 
+export const getPassiveThreads = async (chatId: string): Promise<number[]> => {
+  try {
+    const history = await getHistory(chatId, 100);
+    const threadsMsg = history
+      .filter(m => m.role === 'assistant' && m.content.includes('Topics pasivos:'))
+      .pop();
+
+    if (threadsMsg) {
+      const match = threadsMsg.content.match(/Topics pasivos: \[(.*)\]/);
+      if (match && match[1]) {
+        return match[1].split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+      }
+    }
+    return [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const setPassiveThreads = async (chatId: string, threadIds: number[]): Promise<void> => {
+  await addMemory(chatId, 'assistant', `Topics pasivos: [${threadIds.join(', ')}]`);
+};
+
 /**
  * Gestión de Grupos Autorizados (Global)
  */
