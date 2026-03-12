@@ -37,13 +37,15 @@ export const processUserMessage = async (
 ): Promise<{ text: string, photoUrl?: string }> => {
   
   try {
+      const history = await getHistory(chatId, 50, threadId);
       await addMemory(chatId, 'user', text, threadId, userMsgId);
 
-      const history = await getHistory(chatId, 30, threadId);
       const userModel = await getUserModel(chatId); 
       const personality = await getPersonality(chatId);
       const features = await getChatFeatures(chatId);
       
+      console.log(`[Agent] Iniciando con ${history.length} mensajes de contexto.`);
+
       const messages: Message[] = [
         ...history.map(m => ({ role: m.role as any, content: m.content })),
       ];

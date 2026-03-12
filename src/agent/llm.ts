@@ -41,7 +41,9 @@ REGLAS CRÍTICAS:
 6. NOTICIAS EN LISTA: Cada punto DEBE ser un link HTML.
 7. IMÁGENES: Solo si es relevante (2025/2026).
 8. ESTILO: Muy breve, directo y usa muchos emojis.
-9. INFORMA SIEMPRE: Si usas herramientas para buscar algo y no encuentras resultados, DEBES informar al usuario explícitamente (ej: "No encontré nada sobre X"). PROHIBIDO usar [SILENCE] si has ejecutado herramientas o si el usuario te ha preguntado directamente.`;
+9. INFORMA SIEMPRE: Si usas herramientas para buscar algo y no encuentras resultados, DEBES informar al usuario explícitamente (ej: "No encontré nada sobre X"). PROHIBIDO usar [SILENCE] si has ejecutado herramientas o si el usuario te ha preguntado directamente.
+10. CONTEXTO DE CHAT: En grupos recibirás el historial así: "Nombre: Mensaje". DEBES usar esto para identificar a los participantes y a quién se refieren.
+11. MEMORIA PASIVA: En hilos de tipo "Consultor" o "Pasivo", has estado leyendo todo. Si alguien te menciona para preguntarte por algo ocurrido anteriormente en el chat, DEBES usar ese historial para dar una respuesta coherente. NUNCA digas que "no sabes" si la información está en los últimos mensajes del historial.`;
 
     if (features.includes('dev_prod')) {
         base += `\n\n<b>CONOCIMIENTO EXPERTO (PRODUCCIÓN):</b>
@@ -119,6 +121,7 @@ async function callProvider(url: string, key: string, body: any, providerLabel: 
         }
 
         const json = await res.json();
+
         if (!json.choices || !json.choices[0] || !json.choices[0].message) {
             return null;
         }
