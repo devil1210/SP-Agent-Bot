@@ -1,70 +1,79 @@
-# 🤖 Guía de Comandos SP-Agent
+# 🤖 Guía de Comandos SP-Agent (V4.2)
 
 Esta guía detalla todos los comandos disponibles para administrar y configurar tu bot de Telegram.
 
 > [!IMPORTANT]
-> La mayoría de estos comandos solo pueden ser ejecutados por los usuarios listados en `TELEGRAM_ALLOWED_USER_IDS` dentro del archivo `.env`.
+> La mayoría de estos comandos solo pueden ser ejecutados por los administradores autorizados.
 
 ---
 
-## 🔐 Gestión de Acceso (Grupos)
+## 🔐 Gestión de Acceso y Visibilidad
+
+### `/groups`
+Mapea tu imperio. Muestra todos los grupos autorizados y **descubre los nombres de sus hilos**.
+- Indica qué rol tiene el bot en cada hilo (🎭, 🧐 o 🤖).
 
 ### `/allowgroup [ID]`
 Autoriza un grupo para que el bot pueda operar en él.
-- **Uso en privado**: `/allowgroup -100123456789` (Autoriza ese ID específico).
-- **Uso en grupo**: `/allowgroup` (Autoriza el grupo actual donde estás escribiendo).
+- **Uso en privado**: `/allowgroup -100123456789`
+- **Uso en grupo**: `/allowgroup` (Autoriza el grupo actual).
 
 ### `/revokegroup [ID]`
-Quita la autorización a un grupo. El bot dejará de responder y se saldrá si intenta ser usado.
-- **Ejemplo**: `/revokegroup -100123456789`
+Quita la autorización a un grupo. 
 
 ---
 
-## ⚙️ Configuración del Modelo e Inteligencia
-
-### `/model [nombre_modelo]`
-Cambia el motor de Inteligencia Artificial que usa el bot para ese chat específico.
-- **Ejemplo**: `/model gemini-3.1-flash-lite-preview`
-- **Nota**: El sistema tiene un mapeo inteligente para corregir nombres cortos.
+## ⚙️ Personalidad y Estilo
 
 ### `/persona [instrucciones]`
-Define una personalidad o comportamiento específico para el bot en el chat actual.
-- **Ejemplo**: `/persona Eres un experto en ciberseguridad, responde de forma técnica pero sarcástica.`
-- **Restablecer**: `/persona default` (Vuelve a la personalidad estándar).
+Configura cómo habla el bot. Puedes hacerlo desde cualquier chat:
+- **Chat Actual**: `/persona eres un pirata`
+- **Otro Grupo**: `/persona -100123456789 eres un pirata`
+- **Consultar**: `/persona` o `/persona -100123456789` (Muestra la personalidad actual).
+- **Restablecer**: `/persona default` (Vuelve al estilo breve y directo).
+
+### `/model [nombre_modelo]`
+Cambia el motor de IA (ej: `gemini-3.1-flash-lite-preview`).
 
 ---
 
-## 🧵 Gestión de Hilos (Forums / Topics)
-*Solo para grupos que tienen activada la función de "Temas" (Forums).*
+## 🧵 Gestión de Hilos y Roles
+Configura el nivel de intervención del bot en cada hilo (Topic) de un grupo.
 
-### `/topics enable`
-Habilita el bot para que escuche y responda en el **hilo actual**.
+### `/topics [miembro | consultor | asistente | disable]`
+Define el comportamiento en el hilo actual o a distancia:
+- **🎭 Miembro**: Participación activa. Lee todo y responde solo si es relevante.
+- **🧐 Consultor**: Modo "mano levantada". Lee todo para tener contexto, pero **solo habla si lo mencionas o citas**.
+- **🤖 Asistente**: Reactivo puro. Solo responde si lo mencionas. No guarda memoria del resto de la charla.
+- **❌ Disable**: Apaga el bot en ese hilo.
 
-### `/topics disable`
-Deshabilita al bot en el hilo actual.
+**Uso desde Privado:**
+- `/topics [group_id] [thread_id] [rol]`
 
-### `/topics all`
-El bot escuchará y participará en **todos** los hilos del grupo (Modo abierto).
+---
 
-### `/topics none`
-El bot entrará en "Modo Silencio". Solo guardará cosas en memoria pero **no responderá a menos que sea mencionado** o se le responda directamente.
+## 📢 Comunicación Remota
+
+### `/say [ID_GRUPO] [ID_HILO] [mensaje]`
+Habla a través del bot en cualquier grupo autorizado.
+- **Ejemplo**: `/say -100... 42 ¡Atención bibliotecarios, hay nuevas actualizaciones!`
 
 ---
 
 ## 🧹 Utilidades
 
 ### `/clear`
-Borra la memoria temporal (contexto reciente) del chat o hilo actual. Útil si el bot se ha confundido o quieres empezar una conversación de cero.
+Borra la memoria temporal del chat o hilo actual.
 
 ### `/start`
-Muestra el mensaje de bienvenida y estado actual del bot.
+Mensaje de bienvenida y estado del sistema.
 
 ---
 
-## 💡 Tips de Uso en Grupos
-- **Mención**: Para que el bot te responda en un grupo, escribe `@nombre_del_bot`.
-- **Cita/Reply**: Si respondes a un mensaje del bot, él entenderá que le estás hablando a él.
-- **Memoria Silenciosa**: El bot lee todos los mensajes en grupos autorizados para aprender contexto, pero solo interviene cuando se le solicita.
+## 💡 Tips de Uso
+- **Auto-Descubrimiento**: Si un hilo aparece solo con número en `/groups`, simplemente escribe un mensaje allí y el bot aprenderá su nombre automáticamente.
+- **Silencio Inteligente**: En modo Miembro, el bot sabe cuándo callar para no molestar si no tiene nada valioso que aportar.
+- **Multi-Hilo**: Puedes tener el bot en modo "Consultor" en la biblioteca y como "Miembro" en el grupo de charla al mismo tiempo.
 
 ---
-*Documento generado el 12 de marzo de 2026 por SP-Agent.*
+*Documento actualizado al 12 de marzo de 2026.*
