@@ -303,7 +303,7 @@ const handleIncomingMessage = async (ctx: Context) => {
               .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com');
           
           if (fxText !== text) {
-              await ctx.reply(`✨ <b>Enlace corregido:</b>\n${fxText}`, { 
+              await ctx.reply(fxText, { 
                   parse_mode: 'HTML',
                   reply_parameters: { message_id: ctx.message!.message_id }
               });
