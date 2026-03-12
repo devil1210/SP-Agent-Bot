@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction, GrammyError, HttpError } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality, getInterventionLevel, setInterventionLevel } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -128,6 +128,25 @@ bot.command('model', adminOnly, async (ctx) => {
   const threadId = ctx.message?.message_thread_id?.toString();
   await setUserModel(ctx.chat.id.toString(), model, threadId);
   await ctx.reply(`Modelo cambiado a: \`${model}\``, { parse_mode: 'Markdown', message_thread_id: ctx.message?.message_thread_id });
+});
+
+bot.command('intr', adminOnly, async (ctx) => {
+  const input = ctx.match.trim();
+  const threadId = ctx.message?.message_thread_id?.toString();
+  const chatId = ctx.chat.id.toString();
+
+  if (!input) {
+    const current = await getInterventionLevel(chatId, threadId);
+    return await ctx.reply(`📊 <b>Nivel de intervención actual:</b> <code>${current}%</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+  }
+
+  const level = parseInt(input);
+  if (isNaN(level) || level < 0 || level > 100) {
+    return await ctx.reply("❌ Por favor, indica un número entre 0 y 100.");
+  }
+
+  await setInterventionLevel(chatId, level, threadId);
+  await ctx.reply(`🎯 <b>Frecuencia de intervención establecida al ${level}%</b> para este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
 });
 
 bot.command('persona', adminOnly, async (ctx) => {

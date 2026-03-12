@@ -107,6 +107,31 @@ export const setPersonality = async (chatId: string, persona: string, threadId?:
 };
 
 /**
+ * Gestión del Nivel de Intervención (0-100%)
+ */
+export const getInterventionLevel = async (chatId: string, threadId?: string): Promise<number> => {
+  try {
+    const history = await getSettingsHistory(chatId, threadId);
+    const msg = history
+      .filter(m => m.role === 'assistant' && m.content.includes('Intervention level set:'))
+      .pop();
+
+    if (msg) {
+      const match = msg.content.match(/Intervention level set: (\d+)/);
+      if (match && match[1]) return Math.min(100, Math.max(0, parseInt(match[1])));
+    }
+    // Por defecto 100% (comportamiento actual)
+    return 100;
+  } catch (e) {
+    return 100;
+  }
+};
+
+export const setInterventionLevel = async (chatId: string, level: number, threadId?: string): Promise<void> => {
+  await addMemory(chatId, 'assistant', `Intervention level set: ${level}%`, threadId);
+};
+
+/**
  * Obtiene los hilos (Forum Topics) permitidos para un chat.
  */
 export const getAllowedThreads = async (chatId: string): Promise<number[]> => {

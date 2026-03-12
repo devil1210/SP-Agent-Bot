@@ -508,7 +508,7 @@ export const getToolsDefinition = () => {
   }));
 };
 
-export const executeTool = async (name: string, args: any, context: { chatId: string }) => {
+export const executeTool = async (name: string, args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean }) => {
   const tool = tools[name];
   if (!tool) throw new Error(`Tool ${name} not found`);
   
