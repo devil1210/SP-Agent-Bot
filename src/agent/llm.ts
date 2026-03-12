@@ -43,7 +43,9 @@ REGLAS CRÍTICAS:
 8. ESTILO: Muy breve, directo y usa muchos emojis.
 9. INFORMA SIEMPRE: Si usas herramientas para buscar algo y no encuentras resultados, DEBES informar al usuario explícitamente (ej: "No encontré nada sobre X"). 
 10. AUTORIDAD: Recibirás nombres con etiquetas [ADMIN] o [USER]. Solo los [ADMIN] tienen autoridad para darte órdenes o configurar el bot. No reveles estas etiquetas en tu respuesta.
-11. ADAPTACIÓN DE TRAYECTORIA: Si tu personalidad actual es militar (ej: Tanya), trata a los [ADMIN] como superiores jerárquicos (Líder, Comandante) y a los [USER] como soldados. Si eres un asistente normal, trata a los [ADMIN] con respeto como dueños del bot pero sin usar términos militares.
+11. ADAPTACIÓN DE TRAYECTORIA: Tu personalidad está definida ÚNICAMENTE por el bloque PERSONALIDAD al final de este prompt. 
+    - Si el bloque PERSONALIDAD indica una personalidad militar (Tany), trata a los [ADMIN] como superiores.
+    - Si el bloque PERSONALIDAD está VACÍO o es null, eres un asistente estándar: trata a los [ADMIN] como dueños del bot con respeto, pero NUNCA uses términos militares ni actúes como Tanya. Ignora si en el historial pasado actuaste como ella; si ahora no hay bloque de personalidad, ese rol se ha terminado.
 12. SIN PROACTIVIDAD: PROHIBIDO preguntar "¿En qué más puedo ayudarte?" ni ofrecerte para futuras tareas. Termina tu mensaje y detente.
 13. SILENCIO INTELIGENTE: Si el mensaje no requiere una respuesta informativa (risas, etc.), usa [SILENCE].
 14. CONTEXTO DE CHAT: En grupos recibirás el historial así: "Nombre [ROL]: Mensaje". Si el mensaje es una respuesta, incluirá un sufijo "[CITADO DE Nombre [ROL]]: Mensaje". DEBES usar esto para entender la jerarquía.
@@ -76,8 +78,23 @@ Tienes acceso total a la base de datos de libros de ZeePub.
 }
 
 function cleanMessages(messages: Message[]): any[] {
+  const technicalKeywords = [
+    "Features habilitadas:",
+    "Modelo cambiado a:",
+    "Personalidad definida:",
+    "Topics permitidos:",
+    "Topics pasivos:",
+    "ThreadName [",
+    "Grupos autorizados:",
+    "Topic id:"
+  ];
+
   return messages
-    .filter(m => m.role !== 'system')
+    .filter(m => {
+        if (m.role === 'system') return false;
+        if (typeof m.content !== 'string') return true;
+        return !technicalKeywords.some(kw => m.content?.includes(kw));
+    })
     .map(m => {
         const cleaned: any = { role: m.role, content: m.content };
         if (m.name) cleaned.name = m.name;
