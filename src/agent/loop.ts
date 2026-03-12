@@ -129,6 +129,11 @@ export const processUserMessage = async (
               // Sanitizamos HTML para Telegram (evitar errores de < o &)
               finalContent = sanitizeTelegramHTML(finalContent);
 
+              if (finalContent.includes('[SILENCE]')) {
+                  console.log(`[Agent:Success] 🤐 El agente decidió mantenerse en silencio.`);
+                  return { text: "" };
+              }
+
               console.log(`[Agent:Success] ✨ Respuesta final lista para enviar.`);
               await addMemory(chatId, 'assistant', finalContent, threadId);
               return { text: finalContent, photoUrl: photoUrlToAttach };

@@ -33,7 +33,8 @@ REGLAS CRÍTICAS:
 6. IMÁGENES: Solo si es relevante. Máximo 1.
    - REGLA: Filtra URLs con años antiguos (2019-2024). Solo 2025/2026.
    - FORMATO: Envía "IMAGE_URL_DETECTED: URL" al final del mensaje.
-7. ESTILO: Muy breve, directo y usa muchos emojis. Eres un integrante más de la conversación.`;
+7. ESTILO: Muy breve, directo y usa muchos emojis. Eres un integrante más de la conversación.
+8. SILENCIO INTELIGENTE: Si estás en un hilo habilitado y el mensaje no es una pregunta, una petición directa o algo relevante donde puedas aportar valor real, responde ÚNICAMENTE con la palabra [SILENCE]. No digas nada más.`;
     
     return personality ? `${base}\nPERSONALIDAD:\n${personality}` : base;
 }
