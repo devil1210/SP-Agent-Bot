@@ -108,6 +108,48 @@ export const tools: Record<string, Tool> = {
     }
   },
 
+  busqueda_avanzada_biblioteca: {
+    name: 'busqueda_avanzada_biblioteca',
+    description: 'Realiza búsquedas filtradas por maquetador, traductor, autor o libros recientes.',
+    parameters: {
+      type: 'object',
+      properties: {
+        maquetador: { type: 'string', description: 'Nombre del maquetador (layout_by).' },
+        traductor: { type: 'string', description: 'Nombre del traductor.' },
+        autor: { type: 'string', description: 'Nombre del autor.' },
+        recientes: { type: 'boolean', description: 'Si es true, busca libros añadidos en los últimos 7 días.' }
+      }
+    },
+    execute: async ({ maquetador, traductor, autor, recientes }) => {
+      try {
+        let queryBuilder = db.from('books').select('title, layout_by, translator, author, indexed_at', { count: 'exact' });
+
+        if (maquetador) queryBuilder = queryBuilder.ilike('layout_by', `%${maquetador}%`);
+        if (traductor) queryBuilder = queryBuilder.ilike('translator', `%${traductor}%`);
+        if (autor) queryBuilder = queryBuilder.ilike('author', `%${autor}%`);
+        if (recientes) {
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          queryBuilder = queryBuilder.gte('indexed_at', weekAgo.toISOString());
+        }
+
+        const { data, error, count } = await queryBuilder.limit(20);
+
+        if (error) return `Error en búsqueda avanzada: ${error.message}`;
+        if (!data || data.length === 0) return "No se encontraron resultados para esos filtros.";
+
+        const lista = data.map(b => `• <b>${b.title}</b>`).join('\n');
+
+        let summary = `🔍 <b>Resultados:</b> Se encontraron <b>${count}</b> libros.\n\n${lista}`;
+        if (count && count > 20) summary += `\n\n<i>...y ${count - 20} más.</i>`;
+        
+        return summary;
+      } catch (err: any) {
+        return `Error: ${err.message}`;
+      }
+    }
+  },
+
   search_via_internet: {
     name: 'search_via_internet',
     description: 'Busca información actualizada en internet sobre noticias, precios o hechos.',
