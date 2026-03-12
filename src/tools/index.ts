@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { addLongTermMemory, searchLongTermMemory } from '../db/index.js';
+import { db, addLongTermMemory, searchLongTermMemory } from '../db/index.js';
 
 export interface Tool {
   name: string;
@@ -9,6 +9,52 @@ export interface Tool {
 }
 
 export const tools: Record<string, Tool> = {
+  consultar_biblioteca: {
+    name: 'consultar_biblioteca',
+    description: 'Busca libros o series en tu biblioteca personal de ZeePub.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Título del libro o nombre de la serie' },
+      },
+      required: ['query'],
+    },
+    execute: async ({ query }) => {
+      try {
+        // Buscamos en la tabla de series para obtener la sinopsis y datos generales
+        const { data: seriesData, error: seriesError } = await db
+          .from('series')
+          .select('series_name, series_spanish, series_english, author, description, book_count')
+          .or(`series_name.ilike.%${query}%,series_spanish.ilike.%${query}%,series_english.ilike.%${query}%`)
+          .limit(3);
+
+        if (seriesError) return `Error al consultar series: ${seriesError.message}`;
+        
+        if (seriesData && seriesData.length > 0) {
+          return seriesData.map(s => {
+            const nombre = s.series_spanish || s.series_english || s.series_name;
+            const desc = s.description ? `\n\n<b>Sinopsis:</b> ${s.description}` : '\n(Sin sinopsis disponible)';
+            return `✅ <b>${nombre}</b> de ${s.author || 'Autor desconocido'}.\n📚 Disponibles: ${s.book_count} volúmenes.${desc}`;
+          }).join('\n\n---\n\n');
+        }
+
+        // Si no hay serie clara, buscamos libros individuales pero solo para confirmar existencia
+        const { data: bookData, error: bookError } = await db
+          .from('books')
+          .select('title')
+          .ilike('title', `%${query}%`)
+          .limit(1);
+
+        if (bookError) return `Error al consultar libros: ${bookError.message}`;
+        if (!bookData || bookData.length === 0) return "No encontré ese título o serie en tu biblioteca.";
+
+        return `Sí, tengo algo de "<b>${query}</b>" en la biblioteca, pero no tengo la sinopsis detallada en la base de datos de series.`;
+      } catch (err: any) {
+        return `Error en biblioteca: ${err.message}`;
+      }
+    }
+  },
+
   search_via_internet: {
     name: 'search_via_internet',
     description: 'Busca información actualizada en internet sobre noticias, precios o hechos.',
