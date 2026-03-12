@@ -21,20 +21,20 @@ export const tools: Record<string, Tool> = {
     },
     execute: async ({ query }) => {
       try {
-        // Buscamos en la tabla de series para obtener la sinopsis y datos generales
+        // Buscamos en la tabla de series usando los nombres de columna REALES de la DB
         const { data: seriesData, error: seriesError } = await db
           .from('series')
-          .select('series_name, series_spanish, series_english, author, description, book_count')
-          .or(`series_name.ilike.%${query}%,series_spanish.ilike.%${query}%,series_english.ilike.%${query}%`)
+          .select('name, series_spanish, series_english, author, description, book_count')
+          .or(`name.ilike.%${query}%,series_spanish.ilike.%${query}%,series_english.ilike.%${query}%`)
           .limit(3);
 
         if (seriesError) return `Error al consultar series: ${seriesError.message}`;
         
         if (seriesData && seriesData.length > 0) {
           return seriesData.map(s => {
-            const nombre = s.series_spanish || s.series_english || s.series_name;
+            const nombre = s.series_spanish || s.series_english || s.name;
             const desc = s.description ? `\n\n<b>Sinopsis:</b> ${s.description}` : '\n(Sin sinopsis disponible)';
-            return `✅ <b>${nombre}</b> de ${s.author || 'Autor desconocido'}.\n📚 Disponibles: ${s.book_count} volúmenes.${desc}`;
+            return `✅ <b>${nombre}</b> de ${s.author || 'Autor desconocido'}.\n📚 Disponibles: ${s.book_count || 0} volúmenes.${desc}`;
           }).join('\n\n---\n\n');
         }
 
@@ -51,6 +51,32 @@ export const tools: Record<string, Tool> = {
         return `Sí, tengo algo de "<b>${query}</b>" en la biblioteca, pero no tengo la sinopsis detallada en la base de datos de series.`;
       } catch (err: any) {
         return `Error en biblioteca: ${err.message}`;
+      }
+    }
+  },
+
+  estadisticas_biblioteca: {
+    name: 'estadisticas_biblioteca',
+    description: 'Obtiene el número total de series y libros en la biblioteca de ZeePub.',
+    parameters: { type: 'object', properties: {} },
+    execute: async () => {
+      try {
+        const { count: seriesCount, error: seriesError } = await db
+          .from('series')
+          .select('*', { count: 'exact', head: true });
+        
+        const { count: booksCount, error: booksError } = await db
+          .from('books')
+          .select('*', { count: 'exact', head: true });
+
+        if (seriesError || booksError) return "Error consultando estadísticas.";
+
+        return `📊 <b>Estado de la Biblioteca ZeePub:</b>\n\n` +
+               `📚 <b>Series:</b> ${seriesCount || 0}\n` +
+               `📄 <b>Archivos (EPUB/PDF):</b> ${booksCount || 0}\n\n` +
+               `¡Una colección legendaria! 🔥`;
+      } catch (err: any) {
+        return `Error: ${err.message}`;
       }
     }
   },
