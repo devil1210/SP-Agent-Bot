@@ -81,6 +81,33 @@ export const tools: Record<string, Tool> = {
     }
   },
 
+  configurar_acceso_grupo: {
+    name: 'configurar_acceso_grupo',
+    description: 'Autoriza o revoca el acceso del bot a un grupo de Telegram usando su ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        chatId: { type: 'string', description: 'El ID del grupo (ej: -100123456789)' },
+        accion: { type: 'string', enum: ['autorizar', 'revocar'], description: 'La acción a realizar' }
+      },
+      required: ['chatId', 'accion']
+    },
+    execute: async ({ chatId, accion }) => {
+      try {
+        const { authorizeGroup, revokeGroup } = await import('../db/settings.js');
+        if (accion === 'autorizar') {
+          await authorizeGroup(chatId);
+          return `✅ Grupo ${chatId} autorizado exitosamente.`;
+        } else {
+          await revokeGroup(chatId);
+          return `❌ Acceso revocado para el grupo ${chatId}.`;
+        }
+      } catch (err: any) {
+        return `Error al configurar acceso: ${err.message}`;
+      }
+    }
+  },
+
   search_via_internet: {
     name: 'search_via_internet',
     description: 'Busca información actualizada en internet sobre noticias, precios o hechos.',
