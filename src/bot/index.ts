@@ -179,7 +179,17 @@ bot.command('savepersona', adminOnly, async (ctx) => {
 });
 
 bot.command('personas', adminOnly, async (ctx) => {
+  const input = ctx.match.trim();
   const saved = await getSavedPersonalities();
+  
+  if (input) {
+    const persona = saved.find(p => p.name.toLowerCase() === input.toLowerCase());
+    if (persona) {
+      return await ctx.reply(`📜 <b>Prompt de "${persona.name}":</b>\n\n<code>${persona.content}</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+    }
+    return await ctx.reply(`❌ No encontré la personalidad "<b>${input}</b>".`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+  }
+
   if (saved.length === 0) {
     return await ctx.reply("📚 La biblioteca de personalidades está vacía.\nUsa `/savepersona [nombre] [prompt]` para agregar una.");
   }
@@ -188,9 +198,9 @@ bot.command('personas', adminOnly, async (ctx) => {
   saved.forEach(p => {
     list += `• <b>${p.name}</b>: <i>${p.content.substring(0, 50)}${p.content.length > 50 ? '...' : ''}</i>\n`;
   });
-  list += "\n<i>Para usar una:</i>\n<code>/setpersona [nombre]</code>";
+  list += "\n<i>Para ver el prompt completo:</i>\n<code>/personas [nombre]</code>\n\n<i>Para usar una:</i>\n<code>/setpersona [nombre]</code>\n\n<i>Para editar:</i>\nUsa <code>/savepersona</code> con el mismo nombre.";
 
-  await ctx.reply(list, { parse_mode: 'HTML' });
+  await ctx.reply(list, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
 });
 
 bot.command('setpersona', adminOnly, async (ctx) => {
