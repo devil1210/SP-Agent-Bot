@@ -146,26 +146,28 @@ const handleIncomingMessage = async (ctx: Context) => {
         const isMentioned = text.includes(`@${ctx.me.username}`);
         const isReplyToBot = ctx.message?.reply_to_message?.from?.id === ctx.me.id;
 
-        console.log(`[Bot] Mención: ${isMentioned}, Reply: ${isReplyToBot}, Texto: "${text.substring(0, 20)}..."`);
+        const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
+        const isThreadExplicitlyAllowed = allowedThreads.includes(currentThread);
+        const isAllMode = allowedThreads.length === 0;
 
-        if (!isMentioned && !isReplyToBot) {
+        if (!isMentioned && !isReplyToBot && !isThreadExplicitlyAllowed) {
+            // Si no hay mención ni es un hilo explícitamente habilitado, solo guardamos en memoria
             if (isNoneMode) return; 
             const senderName = ctx.from?.first_name || "Usuario";
             console.log(`[Bot] 🤐 Silencio en grupo: Mensaje de ${senderName} guardado en memoria.`);
             
-            if (allowedThreads.length > 0) {
-            const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
-            if (allowedThreads.includes(currentThread)) {
-                await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
+            if (isAllMode || isThreadExplicitlyAllowed) {
+                 await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
+            } else if (allowedThreads.length > 0 && !isThreadExplicitlyAllowed) {
+                // No habilitado y no en modo "todos", ignoramos completamente
+            } else {
+                 await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
             }
+            return;
         } else {
-            await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
+            console.log(`[Bot] 🎯 Respondiendo en grupo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Habilitado: ${isThreadExplicitlyAllowed})`);
         }
-        return;
-    } else {
-        console.log(`[Bot] 🎯 Respondiendo en grupo a: ${ctx.from?.first_name}`);
     }
-}
 
     // 4. Responder
     console.log(`[Bot] 🧠 Iniciando procesamiento para el chat: ${chatId}`);
