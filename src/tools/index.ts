@@ -366,7 +366,7 @@ export const tools: Record<string, Tool> = {
 
   listar_entidades_biblioteca: {
     name: 'listar_entidades_biblioteca',
-    description: 'Muestra una lista de los maquetadores o traductores más activos en la biblioteca.',
+    description: 'Muestra la lista completa de todos los maquetadores o traductores registrados en la biblioteca, ordenados por actividad.',
     parameters: {
       type: 'object',
       properties: {
@@ -402,11 +402,10 @@ export const tools: Record<string, Tool> = {
 
         // Ordenar y formatear
         const sorted = Object.entries(counts)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, 15);
+          .sort(([, a], [, b]) => b - a);
 
         const list = sorted.map(([name, count]) => `• <b>${name}</b> (${count} libros)`).join('\n');
-        return `📋 <b>Top 15 ${entidad === 'maquetador' ? 'Maquetadores' : 'Traductores'}:</b>\n\n${list}`;
+        return `📋 <b>Lista de ${entidad === 'maquetador' ? 'Maquetadores' : 'Traductores'}:</b>\n\n${list}`;
       } catch (err: any) {
         return `Error: ${err.message}`;
       }
