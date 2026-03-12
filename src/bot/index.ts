@@ -305,8 +305,17 @@ const handleIncomingMessage = async (ctx: Context) => {
           if (fxText !== text) {
               await ctx.reply(fxText, { 
                   parse_mode: 'HTML',
-                  reply_parameters: { message_id: ctx.message!.message_id }
+                  message_thread_id: threadIdInt
               });
+
+              // Intentar borrar el mensaje original para limpiar el chat
+              try {
+                  await ctx.deleteMessage();
+              } catch (e) {
+                  // Si no podemos borrarlo (ej: en privado o sin permisos), 
+                  // al menos el link ya se envió.
+                  console.warn("[Bot] No se pudo borrar el mensaje original");
+              }
               
               const urlOnly = text.trim().match(/^https?:\/\/[^\s]+$/);
               if (urlOnly) return; 
