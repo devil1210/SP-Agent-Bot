@@ -231,3 +231,43 @@ export const getKnownThreads = async (chatId: string): Promise<{id: number, name
     return [{ id: 1, name: 'General' }];
   }
 };
+/**
+ * BIBLIOTECA DE PERSONALIDADES (/savepersona, /personas, /setpersona)
+ * Estas se guardan de forma global para que estén disponibles en cualquier chat.
+ */
+export const getSavedPersonalities = async (): Promise<{name: string, content: string}[]> => {
+  try {
+    const history = await getHistory(GLOBAL_CONFIG_ID, 200);
+    const personas: {name: string, content: string}[] = [];
+    
+    history
+      .filter(m => m.role === 'assistant' && m.content.startsWith('SavedPersona ['))
+      .forEach(m => {
+        const match = m.content.match(/^SavedPersona \[(.*?)\]: (.*)/s);
+        if (match) {
+          // Si el nombre ya existe, lo actualizamos (quedándonos con el último)
+          const name = match[1].trim();
+          const content = match[2].trim();
+          const existingIdx = personas.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+          if (existingIdx >= 0) {
+            personas[existingIdx].content = content;
+          } else {
+            personas.push({ name, content });
+          }
+        }
+      });
+    return personas;
+  } catch (e) {
+    return [];
+  }
+};
+
+export const savePersonality = async (name: string, content: string): Promise<void> => {
+  await addMemory(GLOBAL_CONFIG_ID, 'assistant', `SavedPersona [${name}]: ${content}`);
+};
+
+/**
+ * Nota: El borrado físico no está implementado en addMemory (solo inserts), 
+ * pero al usar el último encontrado en getSavedPersonalities podemos "sobreescribir".
+ * Para un borrado real necesitaríamos modificar la DB directamente.
+ */

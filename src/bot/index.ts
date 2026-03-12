@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction, GrammyError, HttpError } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -10,7 +10,10 @@ export const bot = new Bot(config.telegramBotToken);
 async function setBotCommands() {
     const commands = [
         { command: "features", description: "Gestiona módulos de conocimiento" },
-        { command: "persona", description: "Cambia la personalidad del bot" },
+        { command: "persona", description: "Configurar personalidad libre" },
+        { command: "setpersona", description: "Cambiar a una personalidad guardada" },
+        { command: "personas", description: "Lista de personalidades disponibles" },
+        { command: "savepersona", description: "Guardar una nueva personalidad (Admin)" },
         { command: "topics", description: "Configura el rol del bot en un hilo" },
         { command: "groups", description: "Lista hilos y sus IDs" },
         { command: "say", description: "Enviar mensaje remoto" },
@@ -159,6 +162,54 @@ bot.command('persona', adminOnly, async (ctx) => {
 
   await setPersonality(targetChatId, instructions, currentThreadId);
   await ctx.reply(`✅ Personalidad actualizada para este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+});
+
+bot.command('savepersona', adminOnly, async (ctx) => {
+  const input = ctx.match.trim();
+  const parts = input.split(/\s+/);
+  if (parts.length < 2) {
+    return await ctx.reply("❌ Uso: `/savepersona [nombre] [prompt...]`", { parse_mode: 'Markdown' });
+  }
+
+  const name = parts[0];
+  const prompt = parts.slice(1).join(' ');
+  
+  await savePersonality(name, prompt);
+  await ctx.reply(`✅ Personalidad <b>${name}</b> guardada en la biblioteca.`, { parse_mode: 'HTML' });
+});
+
+bot.command('personas', adminOnly, async (ctx) => {
+  const saved = await getSavedPersonalities();
+  if (saved.length === 0) {
+    return await ctx.reply("📚 La biblioteca de personalidades está vacía.\nUsa `/savepersona [nombre] [prompt]` para agregar una.");
+  }
+
+  let list = "📚 <b>Personalidades Disponibles:</b>\n\n";
+  saved.forEach(p => {
+    list += `• <b>${p.name}</b>: <i>${p.content.substring(0, 50)}${p.content.length > 50 ? '...' : ''}</i>\n`;
+  });
+  list += "\n<i>Para usar una:</i>\n<code>/setpersona [nombre]</code>";
+
+  await ctx.reply(list, { parse_mode: 'HTML' });
+});
+
+bot.command('setpersona', adminOnly, async (ctx) => {
+  const name = ctx.match.trim();
+  if (!name) {
+    return await ctx.reply("❌ Especifica el nombre de la personalidad.\nEj: `/setpersona Tanya`", { parse_mode: 'Markdown' });
+  }
+
+  const saved = await getSavedPersonalities();
+  const persona = saved.find(p => p.name.toLowerCase() === name.toLowerCase());
+
+  if (!persona) {
+    return await ctx.reply(`❌ No encontré la personalidad "<b>${name}</b>" en la biblioteca.`, { parse_mode: 'HTML' });
+  }
+
+  const threadId = ctx.message?.message_thread_id?.toString();
+  await setPersonality(ctx.chat.id.toString(), persona.content, threadId);
+  
+  await ctx.reply(`✅ Personalidad cambiada a: <b>${persona.name}</b> en este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
 });
 
 bot.command('groups', adminOnly, async (ctx) => {
