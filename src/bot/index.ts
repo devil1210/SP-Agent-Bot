@@ -305,7 +305,7 @@ const handleIncomingMessage = async (ctx: Context) => {
           if (fxText !== text) {
               const senderName = ctx.from?.first_name || "Usuario";
               const senderLink = `<a href="tg://user?id=${ctx.from?.id}">${senderName}</a>`;
-              const finalMsg = `👤 ${senderLink}:\n${fxText}`;
+              const finalMsg = `<b>${senderLink}</b>:\n\n${fxText}`;
 
               await ctx.reply(finalMsg, { 
                   parse_mode: 'HTML',
