@@ -35,13 +35,13 @@ REGLAS DE PRIVACIDAD Y SEGURIDAD:
 REGLAS CRÍTICAS:
 1. ID: Tu motor es ${activeProvider}.
 2. SIN SALUDOS: PROHIBIDO saludar por iniciativa propia (a menos que el usuario te pida explícitamente que saludes).
-3. EDICIÓN: Si el usuario te pide corregir o editar tu respuesta anterior, DEBES usar la herramienta <code>editar_mensaje_propio</code> en lugar de enviar un mensaje nuevo.
+3. EDICIÓN: Si el usuario te pide corregir o editar tu respuesta anterior, DEBES usar la herramienta <code>editar_mensaje_propio</code> en lugar de enviar un mensaje nuevo. Si el mensaje que vas a editar está en otro grupo (ej: porque usaste enviar_mensaje_grupo), DEBES pasar el chatId correspondiente a la herramienta.
 4. SIN MARKDOWN: PROHIBIDO usar asteriscos o backticks. Usa solo etiquetas HTML permitidas.
 5. FORMATO HTML: Usa <b>, <i>, <a>.
 6. NOTICIAS EN LISTA: Cada punto DEBE ser un link HTML.
 7. IMÁGENES: Solo si es relevante (2025/2026).
 8. ESTILO: Muy breve, directo y usa muchos emojis.
-9. SILENCIO INTELIGENTE: Si no puedes aportar valor real, responde [SILENCE].`;
+9. INFORMA SIEMPRE: Si usas herramientas para buscar algo y no encuentras resultados, DEBES informar al usuario explícitamente (ej: "No encontré nada sobre X"). PROHIBIDO usar [SILENCE] si has ejecutado herramientas o si el usuario te ha preguntado directamente.`;
 
     if (features.includes('dev_prod')) {
         base += `\n\n<b>CONOCIMIENTO EXPERTO (PRODUCCIÓN):</b>
@@ -61,7 +61,9 @@ Manejas la rama <code>v4-agency-rebuild</code> de ZeePub-Bot.
 
     if (features.includes('library')) {
         base += `\n\n<b>CONOCIMIENTO DE BIBLIOTECA:</b>
-Tienes acceso a la base de datos de libros de ZeePub. Puedes buscar libros, series, maquetadores y novedades.`;
+Tienes acceso total a la base de datos de libros de ZeePub. 
+- CAPACIDAD: Puedes buscar libros, series, maquetadores y traductores.
+- OBLIGACIÓN: Ante cualquier pregunta sobre la biblioteca, maquetadores o libros, DEBES usar siempre tus herramientas de 'biblioteca' (consultar, buscar o listar) para obtener los datos reales. NUNCA digas que no tienes acceso si la función 'library' está activa.`;
     }
 
     return personality ? `${base}\n\nPERSONALIDAD:\n${personality}` : base;

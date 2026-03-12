@@ -318,10 +318,12 @@ export const tools: Record<string, Tool> = {
         const { bot } = await import('../bot/index.js');
         const authorized = await getAuthorizedGroups();
         if (!authorized.includes(chatId)) return "Error: El grupo no está autorizado para que yo hable allí.";
-        await bot.api.sendMessage(chatId, mensaje, { 
+        const sent = await bot.api.sendMessage(chatId, mensaje, { 
             message_thread_id: threadId,
             parse_mode: 'HTML'
         });
+        const { addMemory } = await import('../db/index.js');
+        await addMemory(chatId, 'assistant', mensaje, threadId?.toString(), sent.message_id);
         return `✅ Mensaje enviado con éxito al grupo ${chatId}.`;
       } catch (e: any) {
         return `❌ Error al enviar mensaje: ${e.message}`;
@@ -335,27 +337,78 @@ export const tools: Record<string, Tool> = {
     parameters: {
       type: 'object',
       properties: {
-        nuevo_texto: { type: 'string', description: 'El nuevo contenido corregido para el mensaje.' }
+        nuevo_texto: { type: 'string', description: 'El nuevo contenido corregido para el mensaje.' },
+        chatId: { type: 'string', description: 'Opcional: El ID del chat donde está el mensaje (ej: -100...). Si no se especifica, se usará el chat actual.' }
       },
       required: ['nuevo_texto']
     },
-    execute: async ({ nuevo_texto }, { chatId }) => {
+    execute: async ({ nuevo_texto, chatId: targetChatId }, { chatId: currentChatId }) => {
       try {
+        const finalChatId = targetChatId || currentChatId;
         const { getHistory } = await import('../db/index.js');
         const { bot } = await import('../bot/index.js');
-        const history = await getHistory(chatId, 10);
+        const history = await getHistory(finalChatId, 10);
         const lastAssistantMsg = history
           .filter(m => m.role === 'assistant' && m.msg_id)
           .pop();
         if (!lastAssistantMsg || !lastAssistantMsg.msg_id) {
-          return "No encontré ningún mensaje reciente tuyo que pueda editar.";
+          return `No encontré ningún mensaje reciente tuyo en ${finalChatId} que pueda editar.`;
         }
-        await bot.api.editMessageText(chatId, Number(lastAssistantMsg.msg_id), nuevo_texto, {
+        await bot.api.editMessageText(finalChatId, Number(lastAssistantMsg.msg_id), nuevo_texto, {
           parse_mode: 'HTML'
         });
         return "✅ Mensaje editado correctamente.";
       } catch (e: any) {
         return `❌ Error al editar mensaje: ${e.message}`;
+      }
+    }
+  },
+
+  listar_entidades_biblioteca: {
+    name: 'listar_entidades_biblioteca',
+    description: 'Muestra una lista de los maquetadores o traductores más activos en la biblioteca.',
+    parameters: {
+      type: 'object',
+      properties: {
+        entidad: { type: 'string', enum: ['maquetador', 'traductor'], description: 'El tipo de entidad a listar.' }
+      },
+      required: ['entidad']
+    },
+    execute: async ({ entidad }, { chatId }) => {
+      try {
+        const { getChatFeatures } = await import('../db/settings.js');
+        const features = await getChatFeatures(chatId);
+        if (!features.includes('library')) return "Error: La función de biblioteca no está habilitada.";
+
+        const column = entidad === 'maquetador' ? 'layout_by' : 'translator';
+        
+        // Usamos una query RPC o una selección manual ya que Supabase no tiene "DISTINCT COUNT" directo fácilmente vía JS sin wrappers
+        // Pero podemos obtener los datos y procesarlos
+        const { data, error } = await db
+          .from('books')
+          .select(column)
+          .not(column, 'is', null)
+          .neq(column, '');
+
+        if (error) return `Error al consultar entidades: ${error.message}`;
+        if (!data || data.length === 0) return `No hay ${entidad}es registrados en la biblioteca.`;
+
+        // Contar ocurrencias
+        const counts: Record<string, number> = {};
+        data.forEach((item: any) => {
+          const name = item[column].trim();
+          counts[name] = (counts[name] || 0) + 1;
+        });
+
+        // Ordenar y formatear
+        const sorted = Object.entries(counts)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 15);
+
+        const list = sorted.map(([name, count]) => `• <b>${name}</b> (${count} libros)`).join('\n');
+        return `📋 <b>Top 15 ${entidad === 'maquetador' ? 'Maquetadores' : 'Traductores'}:</b>\n\n${list}`;
+      } catch (err: any) {
+        return `Error: ${err.message}`;
       }
     }
   }

@@ -1,4 +1,4 @@
-import { Bot, Context, NextFunction } from 'grammy';
+import { Bot, Context, NextFunction, GrammyError, HttpError } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
@@ -36,8 +36,6 @@ async function setBotCommands() {
     }
 }
 
-setBotCommands();
-
 /**
  * Middleware para asegurar que solo usuarios autorizados puedan cambiar configuraciones
  */
@@ -61,8 +59,28 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
+// Middleware de logging global
+bot.use(async (ctx, next) => {
+    console.log(`[Bot:Update] Recibida actualización tipo: ${Object.keys(ctx.update).filter(k => k !== 'update_id')[0]}`);
+    await next();
+});
+
 // Comandos básicos
-bot.command('start', (ctx) => ctx.reply("¡Hola! Soy SP-Agent avanzado. Ahora tengo visión, búsqueda en internet y memoria total.", { parse_mode: 'HTML' }));
+bot.command('start', async (ctx) => {
+    await ctx.reply("¡Hola! Soy SP-Agent avanzado. Ahora tengo visión, búsqueda en internet y memoria total.", { parse_mode: 'HTML' });
+});
+
+bot.command('id', adminOnly, async (ctx) => {
+  if (ctx.chat.type !== 'private') {
+    // Silencio en grupos como pidió el usuario
+    return;
+  }
+  const chatId = ctx.chat.id;
+  const threadId = ctx.message?.message_thread_id;
+  let msg = `🆔 <b>Tu Chat ID:</b> <code>${chatId}</code>`;
+  if (threadId) msg += `\n🧵 <b>Thread ID:</b> <code>${threadId}</code>`;
+  await ctx.reply(msg, { parse_mode: 'HTML' });
+});
 
 bot.command('clear', adminOnly, async (ctx) => {
   const { clearMemory } = await import('../db/index.js');
@@ -79,7 +97,7 @@ bot.command('say', adminOnly, async (ctx) => {
 
     const targetChatId = parts[0];
     const authorized = await getAuthorizedGroups();
-    if (!authorized.includes(targetChatId)) return ctx.reply("❌ Ese grupo no está autorizado.");
+    if (!authorized.some(g => g.id === targetChatId)) return ctx.reply("❌ Ese grupo no está autorizado.");
 
     let threadId: number | undefined = undefined;
     let message = "";
@@ -146,11 +164,11 @@ bot.command('groups', adminOnly, async (ctx) => {
     if (authorized.length === 0) return ctx.reply("No hay grupos autorizados.");
     
     let msg = "<b>🏰 Tus Dominios (Grupos e Hilos):</b>\n\n";
-    for (const id of authorized) {
-        msg += `📁 <b>Grupo:</b> <code>${id}</code>\n`;
-        const threads = await getKnownThreads(id);
-        const activeThreads = await getAllowedThreads(id);
-        const passiveThreads = await getPassiveThreads(id);
+    for (const group of authorized) {
+        msg += `📁 <b>Grupo:</b> ${group.name} <code>${group.id}</code>\n`;
+        const threads = await getKnownThreads(group.id);
+        const activeThreads = await getAllowedThreads(group.id);
+        const passiveThreads = await getPassiveThreads(group.id);
 
         for (const t of threads) {
             const isMember = activeThreads.includes(t.id);
@@ -182,8 +200,18 @@ bot.on('message:forum_topic_edited', async (ctx) => {
  */
 bot.command('allowgroup', adminOnly, async (ctx) => {
   const chatId = ctx.match.trim() || ctx.chat.id.toString();
-  await authorizeGroup(chatId);
-  await ctx.reply(`✅ Grupo \`${chatId}\` autorizado.`, { parse_mode: 'Markdown' });
+  let name = 'Grupo';
+  try {
+      if (ctx.match.trim() && ctx.match.trim() !== ctx.chat.id.toString()) {
+          const chat = await ctx.api.getChat(chatId);
+          name = (chat as any).title || (chat as any).first_name || 'Grupo';
+      } else {
+          name = (ctx.chat as any).title || (ctx.chat as any).first_name || 'Grupo';
+      }
+  } catch (e) {}
+
+  await authorizeGroup(chatId, name);
+  await ctx.reply(`✅ Grupo <b>${name}</b> (<code>${chatId}</code>) autorizado.`, { parse_mode: 'HTML' });
 });
 
 bot.command('revokegroup', adminOnly, async (ctx) => {
@@ -315,19 +343,59 @@ const handleIncomingMessage = async (ctx: Context) => {
   const chatId = ctx.chat?.id.toString();
   if (!chatId) return;
 
-  console.log(`[Bot] 📥 Mensaje recibido en: ${ctx.chat?.type} (${chatId})`);
-
+  console.log(`[Bot] 🕵️ Mensaje recibido en el chat ${chatId}. Tipo: ${ctx.chat?.type}`);
+  
+  let text = ctx.message?.text || ctx.message?.caption || "";
   const isGroup = ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup';
   const threadIdInt = ctx.message?.message_thread_id;
   const threadId = threadIdInt?.toString();
-  
-  let text = ctx.message?.text || ctx.message?.caption || "";
-  const isReplyToBot = ctx.message?.reply_to_message?.from?.id === ctx.me.id;
   const isPrivate = ctx.chat?.type === 'private';
+
+  let botUsername = ctx.me?.username;
+  if (!botUsername) {
+      console.log("[Bot] 🔄 ctx.me no disponible, obteniendo via API...");
+      const me = await ctx.api.getMe();
+      botUsername = me.username;
+  }
+  
+  const isReplyToBot = ctx.message?.reply_to_message?.from?.username === botUsername;
+  const fromUsername = ctx.from?.username || ctx.from?.id || "Desconocido";
+  console.log(`[Bot] 📥 [${ctx.chat?.type}] De @${fromUsername}: "${text.substring(0, 30)}..."`);
+
+  // LÓGICA DE DECISIÓN BASE
+  let isMentioned = isPrivate; 
+  let isActiveThread = isPrivate;
+  let isPassiveThread = false;
+  let isAllMode = isPrivate;
+  let isNoneMode = false;
+
+  // 1. Verificación de Seguridad para Grupos
+  if (isGroup) {
+      const authorized = await getAuthorizedGroups();
+      if (!authorized.some(g => g.id === chatId)) {
+          console.warn(`[Bot] 🛑 Chat ${chatId} NO autorizado. Saliendo...`);
+          try { await ctx.leaveChat(); } catch (e) {}
+          return;
+      }
+
+      // 2. Obtener configuraciones de hilos
+      const allowedThreads = await getAllowedThreads(chatId);
+      const passiveThreads = await getPassiveThreads(chatId);
+      
+      const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
+      isActiveThread = allowedThreads.includes(currentThread);
+      isPassiveThread = passiveThreads.includes(currentThread);
+      isAllMode = allowedThreads.length === 0 && passiveThreads.length === 0;
+      isNoneMode = allowedThreads.includes(-1);
+
+      // 3. Verificar mención/cita (Permisivo con límites de palabra)
+      const mentionRegex = new RegExp(`@${botUsername}\\b`, 'i');
+      isMentioned = mentionRegex.test(text);
+  }
 
   // --- AUTO-CONVERSIÓN FXTWITTER (Global) ---
   if (text.includes('x.com') || text.includes('twitter.com')) {
-      const shouldConvert = isPrivate || isReplyToBot;
+      const shouldConvert = isPrivate || isReplyToBot || isMentioned;
       
       if (shouldConvert) {
           const fxText = text
@@ -335,6 +403,7 @@ const handleIncomingMessage = async (ctx: Context) => {
               .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com');
           
           if (fxText !== text) {
+              console.log("[Bot] 🔄 Convirtiendo link de Twitter...");
               const senderName = ctx.from?.first_name || "Usuario";
               const senderLink = `<a href="tg://user?id=${ctx.from?.id}">${senderName}</a>`;
               const finalMsg = `<b>${senderLink}</b>:\n\n${fxText}`;
@@ -344,57 +413,44 @@ const handleIncomingMessage = async (ctx: Context) => {
                   message_thread_id: threadIdInt
               });
 
-              // Intentar borrar el mensaje original para limpiar el chat
               try {
                   await ctx.deleteMessage();
               } catch (e) {
-                  // Si no podemos borrarlo (ej: en privado o sin permisos), 
-                  // al menos el link ya se envió.
                   console.warn("[Bot] No se pudo borrar el mensaje original");
               }
               
-              const urlOnly = text.trim().match(/^https?:\/\/[^\s]+$/);
-              if (urlOnly) return; 
+              // Verificamos si SOLO hay un link después de quitar la mención
+              const cleanText = text.replace(new RegExp(`@${botUsername}\\b`, 'gi'), '').trim();
+              const isUrlOnly = cleanText.match(/^https?:\/\/[^\s]+$/);
+              
+              if (isUrlOnly) {
+                  console.log("[Bot] 🤐 Link convertido y sin texto adicional. Silenciando IA.");
+                  return; 
+              }
+              console.log("[Bot] 🗣️ El mensaje contiene texto adicional. Procesando con IA...");
           }
       }
   }
 
-  // 1. Verificación de Seguridad para Grupos
+  // LÓGICA DE DECISIÓN FINAL PARA IA
   if (isGroup) {
-      const authorized = await getAuthorizedGroups();
-      if (!authorized.includes(chatId)) {
-          await ctx.leaveChat();
-          return;
-      }
-
-      // 2. Obtener configuraciones de hilos
-      const allowedThreads = await getAllowedThreads(chatId);
-      const passiveThreads = await getPassiveThreads(chatId);
-      
-      const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
-      const isActiveThread = allowedThreads.includes(currentThread);
-      const isPassiveThread = passiveThreads.includes(currentThread);
-      const isAllMode = allowedThreads.length === 0 && passiveThreads.length === 0;
-      const isNoneMode = allowedThreads.includes(-1);
-
-      // 3. Verificar mención/cita
-      const isMentioned = text.includes(`@${ctx.me.username}`);
-
-      // LÓGICA DE DECISIÓN
       const shouldRespond = isMentioned || isReplyToBot || isActiveThread;
       const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
       if (!shouldRespond) {
-            if (shouldSaveMemory && !isNoneMode) {
-                const senderName = ctx.from?.first_name || "Usuario";
-                console.log(`[Bot] 🤐 Guardando contexto en memoria (Hilo ${isPassiveThread ? 'Pasivo' : 'Global'}): ${senderName}`);
-                await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId, ctx.message?.message_id);
-            }
-            return;
-        }
+          console.log(`[Bot] Decision (Chat: ${chatId}): Mention=${isMentioned}, Reply=${isReplyToBot}, Thread=${isActiveThread}, Action=SAVE_ONLY`);
+          if (shouldSaveMemory && !isNoneMode) {
+              const senderName = ctx.from?.first_name || "Usuario";
+              console.log(`[Bot] 🤐 Guardando contexto en memoria (Hilo ${isPassiveThread ? 'Pasivo' : 'Global'}): ${senderName}`);
+              await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId, ctx.message?.message_id);
+          }
+          return;
+      }
 
-        console.log(`[Bot] 🎯 Respondiendo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Activo: ${isActiveThread})`);
-    }
+      console.log(`[Bot] Decision (Chat: ${chatId}): Mention=${isMentioned}, Reply=${isReplyToBot}, Thread=${isActiveThread}, Action=RESPOND`);
+  }
+
+  console.log(`[Bot] 🎯 Respondiendo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Activo: ${isGroup ? (isActiveThread ? 'Sí' : 'No') : 'Privado'})`);
 
     // 4. Responder
     console.log(`[Bot] 🧠 Iniciando procesamiento para el chat: ${chatId}`);
@@ -473,14 +529,13 @@ bot.on('message:photo', handleIncomingMessage);
 // Manejo de errores global para evitar que el bot se caiga
 bot.catch((err) => {
   const ctx = err.ctx;
-  console.error(`[Bot Error] Error handling update ${ctx.update.update_id}:`);
   const e = err.error;
-  if (e instanceof Error) {
-    console.error(`  - Name: ${e.name}`);
-    console.error(`  - Message: ${e.message}`);
-    console.error(`  - Stack: ${e.stack}`);
-  } else {
-    console.error(`  - Unknown error:`, e);
+  console.error(`[Bot Error] Error en update ${ctx?.update?.update_id}:`, e);
+  
+  if (e instanceof GrammyError) {
+      console.error("[Bot Error] Error de Telegram:", e.description);
+  } else if (e instanceof HttpError) {
+      console.error("[Bot Error] Error de red (HttpError)");
   }
 });
 
@@ -489,7 +544,7 @@ bot.on('my_chat_member', async (ctx) => {
     const authorized = await getAuthorizedGroups();
     const chatId = ctx.chat.id.toString();
     
-    if (!authorized.includes(chatId)) {
+    if (!authorized.some(g => g.id === chatId)) {
         console.warn(`[Bot] Intento de entrada en grupo no autorizado: ${ctx.chat.title} (${chatId})`);
         try {
             // Intentamos avisar, pero si falla (ej: topic cerrado), ignoramos el error para poder salir
@@ -500,4 +555,9 @@ bot.on('my_chat_member', async (ctx) => {
         await ctx.leaveChat();
     }
   }
+});
+
+setBotCommands();
+bot.start({
+    onStart: (me) => console.log(`[Telegram] Bot iniciado como @${me.username}`)
 });

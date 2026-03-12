@@ -132,8 +132,13 @@ export const processUserMessage = async (
               finalContent = sanitizeTelegramHTML(finalContent);
 
               if (finalContent.includes('[SILENCE]')) {
-                  console.log(`[Agent:Success] 🤐 El agente decidió mantenerse en silencio.`);
-                  return { text: "" };
+                  if (iterations > 1) {
+                      console.log(`[Agent:Loop] ⚠️ El agente intentó silenciarse tras usar herramientas. Forzando respuesta.`);
+                      finalContent = "He realizado la búsqueda en la biblioteca pero no he encontrado resultados para los criterios solicitados. 🔍📚";
+                  } else {
+                      console.log(`[Agent:Success] 🤐 El agente decidió mantenerse en silencio.`);
+                      return { text: "" };
+                  }
               }
 
               console.log(`[Agent:Success] ✨ Respuesta final lista para enviar.`);

@@ -1,4 +1,4 @@
-import { getHistory, addMemory } from './index.js';
+import { db, getHistory, addMemory, MemoryEntry } from './index.js';
 
 /**
  * Acceso a configuraciones globales (usando un ID reservado en la DB)
@@ -6,11 +6,26 @@ import { getHistory, addMemory } from './index.js';
 const GLOBAL_CONFIG_ID = 'system_global_config';
 
 /**
+ * Obtiene el historial de un chat sin filtrar por hilos para configuraciones.
+ */
+const getSettingsHistory = async (chatId: string, limit: number = 100): Promise<MemoryEntry[]> => {
+  const { data, error } = await db
+    .from('memory')
+    .select('*')
+    .eq('user_id', chatId)
+    .order('id', { ascending: false })
+    .limit(limit);
+
+  if (error) return [];
+  return (data as MemoryEntry[] || []).reverse();
+};
+
+/**
  * Obtiene el modelo configurado para un usuario/chat.
  */
 export const getUserModel = async (chatId: string): Promise<string> => {
   try {
-    const history = await getHistory(chatId, 100); 
+    const history = await getSettingsHistory(chatId); 
     const modelSetMsg = history
       .filter(m => m.role === 'assistant' && m.content.includes('Modelo cambiado a:'))
       .pop();
@@ -31,7 +46,7 @@ export const getUserModel = async (chatId: string): Promise<string> => {
  */
 export const getChatFeatures = async (chatId: string): Promise<string[]> => {
   try {
-    const history = await getHistory(chatId, 100);
+    const history = await getSettingsHistory(chatId);
     const msg = history
       .filter(m => m.role === 'assistant' && m.content.includes('Features habilitadas:'))
       .pop();
@@ -39,12 +54,14 @@ export const getChatFeatures = async (chatId: string): Promise<string[]> => {
     if (msg) {
       const match = msg.content.match(/Features habilitadas: \[(.*)\]/);
       if (match && match[1]) {
-        return match[1].split(',').map(s => s.trim()).filter(s => s.length > 0);
+        return match[1].split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
       }
     }
-    return [];
+    // Por defecto, habilitamos 'library' en todos los chats autorizados para evitar confusiones,
+    // a menos que se deshabilite explícitamente (lo cual no está implementado aún pero se podría).
+    return ['library'];
   } catch (e) {
-    return [];
+    return ['library'];
   }
 };
 
@@ -61,7 +78,7 @@ export const setUserModel = async (chatId: string, model: string): Promise<void>
  */
 export const getPersonality = async (chatId: string): Promise<string | null> => {
   try {
-    const history = await getHistory(chatId, 100);
+    const history = await getSettingsHistory(chatId);
     const persMsg = history
       .filter(m => m.role === 'assistant' && m.content.includes('Personalidad definida:'))
       .pop();
@@ -85,7 +102,7 @@ export const setPersonality = async (chatId: string, persona: string): Promise<v
  */
 export const getAllowedThreads = async (chatId: string): Promise<number[]> => {
   try {
-    const history = await getHistory(chatId, 100);
+    const history = await getSettingsHistory(chatId);
     const threadsMsg = history
       .filter(m => m.role === 'assistant' && m.content.includes('Topics permitidos:'))
       .pop();
@@ -93,7 +110,7 @@ export const getAllowedThreads = async (chatId: string): Promise<number[]> => {
     if (threadsMsg) {
       const match = threadsMsg.content.match(/Topics permitidos: \[(.*)\]/);
       if (match && match[1]) {
-        return match[1].split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+        return match[1].split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n));
       }
     }
     return [];
@@ -108,7 +125,7 @@ export const setAllowedThreads = async (chatId: string, threadIds: number[]): Pr
 
 export const getPassiveThreads = async (chatId: string): Promise<number[]> => {
   try {
-    const history = await getHistory(chatId, 100);
+    const history = await getSettingsHistory(chatId);
     const threadsMsg = history
       .filter(m => m.role === 'assistant' && m.content.includes('Topics pasivos:'))
       .pop();
@@ -116,7 +133,7 @@ export const getPassiveThreads = async (chatId: string): Promise<number[]> => {
     if (threadsMsg) {
       const match = threadsMsg.content.match(/Topics pasivos: \[(.*)\]/);
       if (match && match[1]) {
-        return match[1].split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+        return match[1].split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n));
       }
     }
     return [];
@@ -132,7 +149,7 @@ export const setPassiveThreads = async (chatId: string, threadIds: number[]): Pr
 /**
  * Gestión de Grupos Autorizados (Global)
  */
-export const getAuthorizedGroups = async (): Promise<string[]> => {
+export const getAuthorizedGroups = async (): Promise<{id: string, name: string}[]> => {
   try {
     const history = await getHistory(GLOBAL_CONFIG_ID, 100);
     const lastConfig = history
@@ -142,7 +159,19 @@ export const getAuthorizedGroups = async (): Promise<string[]> => {
     if (lastConfig) {
       const match = lastConfig.content.match(/Grupos autorizados: \[(.*)\]/);
       if (match && match[1]) {
-        return match[1].split(',').map(s => s.trim()).filter(s => s.length > 0);
+        return match[1].split(',').map((s: string) => {
+          const part = s.trim();
+          // Regex mejorada: Nombre (ID) -> Soporta espacios y signos
+          const nameMatch = part.match(/^(.+?)\s*\(((-?\d+))\)$/);
+          if (nameMatch) {
+              return { name: nameMatch[1], id: nameMatch[2] };
+          }
+          // Fallback para formato viejo: solo ID
+          if (/^-?\d+$/.test(part)) {
+              return { id: part, name: 'Grupo Desconocido' };
+          }
+          return { id: part, name: 'Formato Inválido' };
+        }).filter((g: any) => g.name !== 'Formato Inválido');
       }
     }
     return [];
@@ -151,18 +180,20 @@ export const getAuthorizedGroups = async (): Promise<string[]> => {
   }
 };
 
-export const authorizeGroup = async (chatId: string): Promise<void> => {
-  const current = await getAuthorizedGroups();
-  if (!current.includes(chatId)) {
-    current.push(chatId);
-    await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Grupos autorizados: [${current.join(', ')}]`);
-  }
+export const authorizeGroup = async (chatId: string, name: string = 'Grupo'): Promise<void> => {
+  let current = await getAuthorizedGroups();
+  // Filtramos el ID si ya existe para actualizar el nombre
+  current = current.filter(g => g.id !== chatId);
+  const newList = [...current, { id: chatId, name }];
+  const serialized = newList.map(g => `${g.name} (${g.id})`).join(', ');
+  await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Grupos autorizados: [${serialized}]`);
 };
 
 export const revokeGroup = async (chatId: string): Promise<void> => {
   let current = await getAuthorizedGroups();
-  current = current.filter(id => id !== chatId);
-  await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Grupos autorizados: [${current.join(', ')}]`);
+  current = current.filter(g => g.id !== chatId);
+  const serialized = current.map(g => `${g.name} (${g.id})`).join(', ');
+  await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Grupos autorizados: [${serialized}]`);
 };
 
 /**
@@ -174,7 +205,7 @@ export const setThreadName = async (chatId: string, threadId: number, name: stri
 
 export const getKnownThreads = async (chatId: string): Promise<{id: number, name: string}[]> => {
   try {
-    const history = await getHistory(chatId, 100);
+    const history = await getSettingsHistory(chatId);
     const threadMap: Record<number, string> = { 1: 'General' };
     
     history
