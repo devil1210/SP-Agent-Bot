@@ -513,13 +513,17 @@ const handleIncomingMessage = async (ctx: Context) => {
       }
   }
 
-  // LÓGICA DE FILTRADO (Evitar procesar risas o mensajes vacíos incluso en hilos activos)
-  const isTrivial = text.length < 10 && /^(jaj|jej|lol|xd|buu|bu|ah|ok|sip|no|si|pos|pos no|jeje|jajaja|buuu|buuuuu|buuuuuuu|jajajaja|😂|🤣|👍|🫡|🤔|🙄|a|buu|buuu|buuuu|buuuuuu)(jaj|jej|lol|xd|!|\.|\?|u|a|e|k|\s)*$/i.test(text.trim());
+  // LÓGICA DE FILTRADO (Evitar procesar risas, agradecimientos cortos o mensajes vacíos)
+  const isTrivial = text.length < 15 && /^(jaj|jej|lol|xd|buu|bu|ah|ok|sip|no|si|pos|pos no|jeje|jajaja|buuu|buuuuu|buuuuuuu|jajajaj|😂|🤣|👍|🫡|🤔|🙄|a|gracias|gracia|ty|thx|visto|okey|okay|vale|entendido|perfecto|listo|nwn|uwu|owo)(jaj|jej|lol|xd|!|\.|\?|u|a|e|k|\s|s)*$/i.test(text.trim());
 
   // LÓGICA DE DECISIÓN FINAL PARA IA
   if (isGroup) {
       const substantiveReply = isReplyToBot && !isTrivial;
+      
+      // MIEMBRO: Participación activa (isActiveThread). El bot decide si es interesante (!isTrivial).
+      // CONSULTOR: Contexto total pero solo habla si lo invitan (isPassiveThread && substantiveReply).
       const shouldRespond = isMentioned || (isPassiveThread ? substantiveReply : (isActiveThread && !isTrivial));
+      
       const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
       if (!shouldRespond) {
