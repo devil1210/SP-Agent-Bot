@@ -563,7 +563,20 @@ const handleIncomingMessage = async (ctx: Context) => {
     }
 
     const formattedText = isGroup ? `${senderName}: ${text}${quoteContext}` : `${text}${quoteContext}`;
-    const { text: responseText, photoUrl } = await processUserMessage(chatId, formattedText, threadId, attachments, ctx.message?.message_id);
+    
+    // Identificar si la cita es hacia el bot
+    const quotedMsgId = ctx.message?.reply_to_message?.message_id;
+    const qIsAssistant = isReplyToBot;
+
+    const { text: responseText, photoUrl } = await processUserMessage(
+        chatId, 
+        formattedText, 
+        threadId, 
+        attachments, 
+        ctx.message?.message_id,
+        quotedMsgId,
+        qIsAssistant
+    );
     
     if (responseText || photoUrl) {
       if (photoUrl) {

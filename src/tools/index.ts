@@ -5,7 +5,7 @@ export interface Tool {
   name: string;
   description: string;
   parameters: any;
-  execute: (args: any, context: { chatId: string }) => Promise<string>;
+  execute: (args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean }) => Promise<string>;
 }
 
 export const tools: Record<string, Tool> = {
@@ -474,6 +474,24 @@ export const tools: Record<string, Tool> = {
         return `✅ Se han limpiado ${assistantMsgs.length} mensajes.`;
       } catch (e: any) {
         return `❌ Error en limpieza: ${e.message}`;
+      }
+    }
+  },
+
+  borrar_este_mensaje: {
+    name: 'borrar_este_mensaje',
+    description: 'Elimina el mensaje que el usuario está CITANDO (respondiendo). Úsalo solo si el usuario te cita y te pide borrarlo.',
+    parameters: { type: 'object', properties: {} },
+    execute: async (_, { chatId, quotedMsgId, qIsAssistant }) => {
+      try {
+        if (!quotedMsgId) return "No estás citando ningún mensaje para borrar.";
+        if (!qIsAssistant) return "Ese mensaje no es mío, no puedo borrarlo. Solo puedo borrar mis propios mensajes.";
+        
+        const { bot } = await import('../bot/index.js');
+        await bot.api.deleteMessage(chatId, quotedMsgId);
+        return "✅ Mensaje citado eliminado correctamente.";
+      } catch (e: any) {
+        return `❌ Error al borrar el mensaje citado: ${e.message}`;
       }
     }
   }

@@ -33,7 +33,9 @@ export const processUserMessage = async (
     text: string, 
     threadId?: string, 
     attachments: Attachment[] = [],
-    userMsgId?: number
+    userMsgId?: number,
+    quotedMsgId?: number,
+    qIsAssistant?: boolean
 ): Promise<{ text: string, photoUrl?: string }> => {
   
   try {
@@ -95,7 +97,11 @@ export const processUserMessage = async (
                     : JSON.stringify(toolCall.function.arguments);
 
                   console.log(`[Agent:Tool] 🛠️ Ejecutando: ${toolCall.function.name}(${args})`);
-                  const result = await executeTool(toolCall.function.name, toolCall.function.arguments, { chatId });
+                  const result = await executeTool(toolCall.function.name, toolCall.function.arguments, { 
+                      chatId, 
+                      quotedMsgId, 
+                      qIsAssistant 
+                  });
                   console.log(`[Agent:Tool] ✅ Resultado obtenido (${result.length} caracteres)`);
                   
                   // Ya no capturamos aquí, lo haremos del mensaje final del asistente
