@@ -410,6 +410,72 @@ export const tools: Record<string, Tool> = {
         return `Error: ${err.message}`;
       }
     }
+  },
+
+  borrar_mensaje_propio: {
+    name: 'borrar_mensaje_propio',
+    description: 'Elimina tu último mensaje enviado (o uno específico por ID) en este chat. Úsalo si el [ADMIN] te ordena borrar lo que dijiste.',
+    parameters: {
+      type: 'object',
+      properties: {
+        chatId: { type: 'string', description: 'Opcional: ID del chat.' },
+        messageId: { type: 'number', description: 'Opcional: ID del mensaje específico a borrar. Si no se da, borra el último tuyo.' }
+      }
+    },
+    execute: async ({ chatId: targetChatId, messageId }, { chatId: currentChatId }) => {
+      try {
+        const finalChatId = targetChatId || currentChatId;
+        const { bot } = await import('../bot/index.js');
+        const { getHistory } = await import('../db/index.js');
+        
+        let msgToDelete = messageId;
+        if (!msgToDelete) {
+          const history = await getHistory(finalChatId, 10);
+          const lastAssistantMsg = history.filter(m => m.role === 'assistant' && m.msg_id).pop();
+          if (!lastAssistantMsg || !lastAssistantMsg.msg_id) return "No encontré mensajes tuyos para borrar.";
+          msgToDelete = Number(lastAssistantMsg.msg_id);
+        }
+
+        await bot.api.deleteMessage(finalChatId, msgToDelete);
+        return "✅ Mensaje eliminado correctamente.";
+      } catch (e: any) {
+        return `❌ Error al borrar: ${e.message}`;
+      }
+    }
+  },
+
+  limpiar_ultimo_seguimiento: {
+    name: 'limpiar_ultimo_seguimiento',
+    description: 'Borra los últimos N mensajes que tú (el bot) has enviado en este hilo. Úsalo para limpiar "estupideces" o errores en cadena.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cantidad: { type: 'number', description: 'Número de mensajes tuyos a borrar (máx 5).' }
+      },
+      required: ['cantidad']
+    },
+    execute: async ({ cantidad }, { chatId }) => {
+      try {
+        const { bot } = await import('../bot/index.js');
+        const { getHistory } = await import('../db/index.js');
+        const history = await getHistory(chatId, 50);
+        const assistantMsgs = history
+          .filter(m => m.role === 'assistant' && m.msg_id)
+          .reverse()
+          .slice(0, Math.min(cantidad, 5));
+
+        if (assistantMsgs.length === 0) return "No encontré mensajes recientes para limpiar.";
+
+        for (const msg of assistantMsgs) {
+          try {
+            await bot.api.deleteMessage(chatId, Number(msg.msg_id));
+          } catch (e) {}
+        }
+        return `✅ Se han limpiado ${assistantMsgs.length} mensajes.`;
+      } catch (e: any) {
+        return `❌ Error en limpieza: ${e.message}`;
+      }
+    }
   }
 };
 
