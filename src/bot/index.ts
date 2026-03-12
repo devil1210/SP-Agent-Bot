@@ -289,52 +289,57 @@ const handleIncomingMessage = async (ctx: Context) => {
   const threadIdInt = ctx.message?.message_thread_id;
   const threadId = threadIdInt?.toString();
   
-    // 1. Verificación de Seguridad para Grupos
-    if (isGroup) {
-        const authorized = await getAuthorizedGroups();
-        if (!authorized.includes(chatId)) {
-            await ctx.leaveChat();
-            return;
-        }
+  let text = ctx.message?.text || ctx.message?.caption || "";
+  const isReplyToBot = ctx.message?.reply_to_message?.from?.id === ctx.me.id;
+  const isPrivate = ctx.chat?.type === 'private';
 
-        // 2. Obtener configuraciones de hilos
-        const allowedThreads = await getAllowedThreads(chatId);
-        const passiveThreads = await getPassiveThreads(chatId);
-        
-        const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
-        const isActiveThread = allowedThreads.includes(currentThread);
-        const isPassiveThread = passiveThreads.includes(currentThread);
-        const isAllMode = allowedThreads.length === 0 && passiveThreads.length === 0;
-        const isNoneMode = allowedThreads.includes(-1);
+  // --- AUTO-CONVERSIÓN FXTWITTER (Global) ---
+  if (text.includes('x.com') || text.includes('twitter.com')) {
+      const shouldConvert = isPrivate || isReplyToBot;
+      
+      if (shouldConvert) {
+          const fxText = text
+              .replace(/(https?:\/\/)(www\.)?x\.com/g, '$1fxtwitter.com')
+              .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com');
+          
+          if (fxText !== text) {
+              await ctx.reply(`✨ <b>Enlace corregido:</b>\n${fxText}`, { 
+                  parse_mode: 'HTML',
+                  reply_parameters: { message_id: ctx.message!.message_id }
+              });
+              
+              const urlOnly = text.trim().match(/^https?:\/\/[^\s]+$/);
+              if (urlOnly) return; 
+          }
+      }
+  }
 
-        // 3. Verificar mención/cita
-        const text = ctx.message?.text || ctx.message?.caption || "";
-        const isMentioned = text.includes(`@${ctx.me.username}`);
-        const isReplyToBot = ctx.message?.reply_to_message?.from?.id === ctx.me.id;
+  // 1. Verificación de Seguridad para Grupos
+  if (isGroup) {
+      const authorized = await getAuthorizedGroups();
+      if (!authorized.includes(chatId)) {
+          await ctx.leaveChat();
+          return;
+      }
 
-        // LÓGICA DE DECISIÓN
-        const shouldRespond = isMentioned || isReplyToBot || isActiveThread;
-        const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
+      // 2. Obtener configuraciones de hilos
+      const allowedThreads = await getAllowedThreads(chatId);
+      const passiveThreads = await getPassiveThreads(chatId);
+      
+      const currentThread = threadIdInt !== undefined ? threadIdInt : 1;
+      const isActiveThread = allowedThreads.includes(currentThread);
+      const isPassiveThread = passiveThreads.includes(currentThread);
+      const isAllMode = allowedThreads.length === 0 && passiveThreads.length === 0;
+      const isNoneMode = allowedThreads.includes(-1);
 
-        // --- AUTO-CONVERSIÓN FXTWITTER ---
-        if (isReplyToBot && (text.includes('x.com') || text.includes('twitter.com'))) {
-            const fxText = text
-                .replace(/(https?:\/\/)(www\.)?x\.com/g, '$1fxtwitter.com')
-                .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com');
-            
-            if (fxText !== text) {
-                await ctx.reply(`✨ <b>Enlace corregido:</b>\n${fxText}`, { 
-                    parse_mode: 'HTML',
-                    reply_parameters: { message_id: ctx.message!.message_id }
-                });
-                
-                // Si el mensaje es SOLO el link, no activamos la IA para ahorrar recursos
-                const urlOnly = text.trim().match(/^https?:\/\/[^\s]+$/);
-                if (urlOnly) return;
-            }
-        }
+      // 3. Verificar mención/cita
+      const isMentioned = text.includes(`@${ctx.me.username}`);
 
-        if (!shouldRespond) {
+      // LÓGICA DE DECISIÓN
+      const shouldRespond = isMentioned || isReplyToBot || isActiveThread;
+      const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
+
+      if (!shouldRespond) {
             if (shouldSaveMemory && !isNoneMode) {
                 const senderName = ctx.from?.first_name || "Usuario";
                 console.log(`[Bot] 🤐 Guardando contexto en memoria (Hilo ${isPassiveThread ? 'Pasivo' : 'Global'}): ${senderName}`);
@@ -351,7 +356,7 @@ const handleIncomingMessage = async (ctx: Context) => {
     await ctx.replyWithChatAction('typing');
   try {
     const senderName = ctx.from?.first_name || "Usuario";
-    const text = ctx.message?.text || ctx.message?.caption || "(Sin texto)";
+    text = ctx.message?.text || ctx.message?.caption || "(Sin texto)";
     
     // Capturar texto del mensaje citado para dar contexto al agente
     let quoteContext = "";
