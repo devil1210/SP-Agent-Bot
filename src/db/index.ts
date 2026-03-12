@@ -9,6 +9,7 @@ export interface MemoryEntry {
   id: number;
   user_id: string; // chatId
   thread_id?: string | null;
+  msg_id?: number | null;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   created_at: string;
@@ -39,14 +40,15 @@ export const getHistory = async (chatId: string, limit: number = 20, threadId?: 
   return (data as MemoryEntry[] || []).reverse();
 };
 
-export const addMemory = async (chatId: string, role: string, content: string, threadId?: string): Promise<void> => {
+export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number): Promise<void> => {
   const { error } = await db
     .from('memory')
     .insert([{ 
       user_id: chatId, 
       role, 
       content, 
-      thread_id: threadId || null 
+      thread_id: threadId || null,
+      msg_id: msgId || null
     }]);
 
   if (error) {

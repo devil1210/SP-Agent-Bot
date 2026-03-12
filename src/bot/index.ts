@@ -388,7 +388,7 @@ const handleIncomingMessage = async (ctx: Context) => {
             if (shouldSaveMemory && !isNoneMode) {
                 const senderName = ctx.from?.first_name || "Usuario";
                 console.log(`[Bot] 🤐 Guardando contexto en memoria (Hilo ${isPassiveThread ? 'Pasivo' : 'Global'}): ${senderName}`);
-                await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId);
+                await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId, ctx.message?.message_id);
             }
             return;
         }
@@ -434,26 +434,28 @@ const handleIncomingMessage = async (ctx: Context) => {
     }
 
     const formattedText = isGroup ? `${senderName}: ${text}${quoteContext}` : `${text}${quoteContext}`;
-    const { text: responseText, photoUrl } = await processUserMessage(chatId, formattedText, threadId, attachments);
+    const { text: responseText, photoUrl } = await processUserMessage(chatId, formattedText, threadId, attachments, ctx.message?.message_id);
     
     if (responseText || photoUrl) {
       if (photoUrl) {
           try {
-              await ctx.replyWithPhoto(photoUrl, {
+              const sent = await ctx.replyWithPhoto(photoUrl, {
                   caption: responseText,
                   parse_mode: 'HTML',
                   message_thread_id: threadIdInt
               });
+              await addMemory(chatId, 'assistant', responseText, threadId, sent.message_id);
               return;
           } catch (err) {
               console.error("[Bot] Error enviando foto, enviando solo texto.", err);
           }
       }
       
-      await ctx.reply(responseText, { 
+      const sent = await ctx.reply(responseText, { 
         parse_mode: 'HTML',
         message_thread_id: threadIdInt 
       });
+      await addMemory(chatId, 'assistant', responseText, threadId, sent.message_id);
     }
   } catch (error: any) {
     console.error(`[Bot Error]`, error);

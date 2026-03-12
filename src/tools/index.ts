@@ -300,10 +300,9 @@ export const tools: Record<string, Tool> = {
       } catch (err: any) { return `Error en el radar: ${err.message}`; }
     }
   },
-
   enviar_mensaje_grupo: {
     name: 'enviar_mensaje_grupo',
-    description: 'Envía un mensaje a un grupo/hilo autorizado específico. Ideal para saludar o dar avisos.',
+    description: 'Envía un mensaje a un grupo/hilo autorizado específico. IMPORTANTE: No asumas que el grupo tiene las mismas funciones (biblioteca, dev, etc.) que este chat privado. Sé profesional y evita mencionar herramientas específicas a menos que el usuario te lo pida.',
     parameters: {
       type: 'object',
       properties: {
@@ -317,10 +316,8 @@ export const tools: Record<string, Tool> = {
       try {
         const { getAuthorizedGroups } = await import('../db/settings.js');
         const { bot } = await import('../bot/index.js');
-        
         const authorized = await getAuthorizedGroups();
         if (!authorized.includes(chatId)) return "Error: El grupo no está autorizado para que yo hable allí.";
-        
         await bot.api.sendMessage(chatId, mensaje, { 
             message_thread_id: threadId,
             parse_mode: 'HTML'
@@ -328,6 +325,37 @@ export const tools: Record<string, Tool> = {
         return `✅ Mensaje enviado con éxito al grupo ${chatId}.`;
       } catch (e: any) {
         return `❌ Error al enviar mensaje: ${e.message}`;
+      }
+    }
+  },
+
+  editar_mensaje_propio: {
+    name: 'editar_mensaje_propio',
+    description: 'Edita el contenido de tu último mensaje enviado en este chat o hilo. Úsalo si el usuario te pide corregir algo que acabas de decir.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nuevo_texto: { type: 'string', description: 'El nuevo contenido corregido para el mensaje.' }
+      },
+      required: ['nuevo_texto']
+    },
+    execute: async ({ nuevo_texto }, { chatId }) => {
+      try {
+        const { getHistory } = await import('../db/index.js');
+        const { bot } = await import('../bot/index.js');
+        const history = await getHistory(chatId, 10);
+        const lastAssistantMsg = history
+          .filter(m => m.role === 'assistant' && m.msg_id)
+          .pop();
+        if (!lastAssistantMsg || !lastAssistantMsg.msg_id) {
+          return "No encontré ningún mensaje reciente tuyo que pueda editar.";
+        }
+        await bot.api.editMessageText(chatId, Number(lastAssistantMsg.msg_id), nuevo_texto, {
+          parse_mode: 'HTML'
+        });
+        return "✅ Mensaje editado correctamente.";
+      } catch (e: any) {
+        return `❌ Error al editar mensaje: ${e.message}`;
       }
     }
   }

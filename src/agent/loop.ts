@@ -32,11 +32,12 @@ export const processUserMessage = async (
     chatId: string, 
     text: string, 
     threadId?: string, 
-    attachments: Attachment[] = []
+    attachments: Attachment[] = [],
+    userMsgId?: number
 ): Promise<{ text: string, photoUrl?: string }> => {
   
   try {
-      await addMemory(chatId, 'user', text, threadId);
+      await addMemory(chatId, 'user', text, threadId, userMsgId);
 
       const history = await getHistory(chatId, 30, threadId);
       const userModel = await getUserModel(chatId); 
@@ -136,7 +137,6 @@ export const processUserMessage = async (
               }
 
               console.log(`[Agent:Success] ✨ Respuesta final lista para enviar.`);
-              await addMemory(chatId, 'assistant', finalContent, threadId);
               return { text: finalContent, photoUrl: photoUrlToAttach };
           }
       }
