@@ -606,7 +606,8 @@ const handleIncomingMessage = async (ctx: Context) => {
       const shouldConvert = isPrivate || isReplyToBot || isMentioned;
       
       if (shouldConvert) {
-          const mentionRegex = new RegExp(`@${botUsername}\\b`, 'gi');
+          // Limpiar la mención y cualquier espacio/salto de línea sobrante después de ella
+          const mentionRegex = new RegExp(`@${botUsername}\\s*`, 'gi');
           const fxText = text
               .replace(mentionRegex, '')
               .replace(/(https?:\/\/)(www\.)?x\.com/g, '$1fxtwitter.com')
