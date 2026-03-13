@@ -539,9 +539,14 @@ const handleIncomingMessage = async (ctx: Context) => {
   if (isGroup) {
       const substantiveReply = isReplyToBot && !isTrivial;
       
-      // MIEMBRO: Participación activa (isActiveThread). El bot decide si es interesante (!isTrivial).
-      // CONSULTOR: Contexto total pero solo habla si lo invitan (isPassiveThread && substantiveReply).
-      const shouldRespond = isMentioned || (isPassiveThread ? substantiveReply : (isActiveThread && !isTrivial));
+      const interventionLevel = await getInterventionLevel(chatId, threadId);
+      const randomDice = Math.random() * 100;
+
+      // MIEMBRO: Participación activa (isActiveThread). 
+      // Si NO hay mención ni respuesta, aplicamos el "dado" de intervención.
+      const isRandomIntervention = isActiveThread && !isTrivial && (randomDice <= interventionLevel);
+      
+      const shouldRespond = isMentioned || isReplyToBot || (isPassiveThread ? substantiveReply : isRandomIntervention);
       
       const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
