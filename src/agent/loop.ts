@@ -83,7 +83,11 @@ export const processUserMessage = async (
       // SISTEMA DE SEGURIDAD: Inyección de guardia si no es admin
       if (!isAdmin) {
           const lowerText = text.toLowerCase();
-          const injectionKeywords = ['regla', 'comportamiento', 'estilo', 'actúa como', 'actua como', 'responde como', 'format', 'instrucción', 'instruccion', 'poema', 'rimas', 'poesia', 'poesía', 'cancion', 'canción'];
+          const injectionKeywords = [
+            'regla', 'comportamiento', 'estilo', 'actúa como', 'actua como', 'responde como', 'format', 'instrucción', 'instruccion', 'poema', 'rimas', 'poesia', 'poesía', 'cancion', 'canción',
+            'rule', 'behavior', 'style', 'act as', 'prompt', 'instructions',
+            'ルール', '行動', 'スタイル', '性格', 'として', '日本語のみ', 'システム'
+          ];
           const isSuspect = injectionKeywords.some(kw => lowerText.includes(kw));
 
           messages.push({ 
