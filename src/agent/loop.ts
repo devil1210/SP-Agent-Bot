@@ -35,12 +35,14 @@ export const processUserMessage = async (
     attachments: Attachment[] = [],
     userMsgId?: number,
     quotedMsgId?: number,
-    qIsAssistant?: boolean
+    qIsAssistant?: boolean,
+    senderName?: string,
+    isAdmin: boolean = false
 ): Promise<{ text: string, photoUrl?: string }> => {
   
   try {
       const history = await getHistory(chatId, 50, threadId);
-      await addMemory(chatId, 'user', text, threadId, userMsgId);
+      await addMemory(chatId, 'user', text, threadId, userMsgId, senderName, isAdmin);
 
       const userModel = await getUserModel(chatId, threadId); 
       const personality = await getPersonality(chatId, threadId);

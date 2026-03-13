@@ -40,13 +40,19 @@ export const getHistory = async (chatId: string, limit: number = 20, threadId?: 
   return (data as MemoryEntry[] || []).reverse();
 };
 
-export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number): Promise<void> => {
+export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number, senderName?: string, isAdmin: boolean = false): Promise<void> => {
+  let finalContent = content;
+  if (role === 'user' && senderName) {
+    const roleTag = isAdmin ? '[ADMIN]' : '[USER]';
+    finalContent = `${senderName} ${roleTag}: ${content}`;
+  }
+
   const { error } = await db
     .from('memory')
     .insert([{ 
       user_id: chatId, 
       role, 
-      content, 
+      content: finalContent, 
       thread_id: threadId || null,
       msg_id: msgId || null
     }]);

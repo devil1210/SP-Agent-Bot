@@ -591,6 +591,9 @@ const handleIncomingMessage = async (ctx: Context) => {
     const quotedMsgId = ctx.message?.reply_to_message?.message_id;
     const qIsAssistant = isReplyToBot;
 
+    const isAdmin = config.telegramAllowedUserIds.includes(ctx.from?.id?.toString() || "");
+    const finalSenderName = senderName;
+
     const { text: responseText, photoUrl } = await processUserMessage(
         chatId, 
         formattedText, 
@@ -598,7 +601,9 @@ const handleIncomingMessage = async (ctx: Context) => {
         attachments, 
         ctx.message?.message_id,
         quotedMsgId,
-        qIsAssistant
+        qIsAssistant,
+        finalSenderName,
+        isAdmin
     );
     
     if (responseText || photoUrl) {
