@@ -606,11 +606,14 @@ const handleIncomingMessage = async (ctx: Context) => {
       const shouldConvert = isPrivate || isReplyToBot || isMentioned;
       
       if (shouldConvert) {
+          const mentionRegex = new RegExp(`@${botUsername}\\b`, 'gi');
           const fxText = text
+              .replace(mentionRegex, '')
               .replace(/(https?:\/\/)(www\.)?x\.com/g, '$1fxtwitter.com')
-              .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com');
+              .replace(/(https?:\/\/)(www\.)?twitter\.com/g, '$1fxtwitter.com')
+              .trim();
           
-          if (fxText !== text) {
+          if (fxText !== text.trim() && fxText !== '') {
               console.log("[Bot] 🔄 Convirtiendo link de Twitter...");
               const senderName = ctx.from?.first_name || "Usuario";
               const senderLink = `<a href="tg://user?id=${ctx.from?.id}">${senderName}</a>`;
