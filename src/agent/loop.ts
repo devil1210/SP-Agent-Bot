@@ -178,12 +178,13 @@ export const processUserMessage = async (
               // Sanitizamos HTML para Telegram (evitar errores de < o &)
               finalContent = sanitizeTelegramHTML(finalContent);
 
-              if (finalContent.includes('[SILENCE]')) {
+              const isSilent = finalContent.toUpperCase().includes('[SILENCE]');
+              if (isSilent) {
                   if (iterations > 1) {
-                      console.log(`[Agent:Loop] ⚠️ El agente intentó silenciarse tras usar herramientas. Forzando respuesta.`);
+                      console.log(`[Agent:Loop] ⚠️ El agente intentó silenciarse ([SILENCE]) tras usar herramientas. Forzando respuesta.`);
                       finalContent = "He realizado la búsqueda en la biblioteca pero no he encontrado resultados para los criterios solicitados. 🔍📚";
                   } else {
-                      console.log(`[Agent:Success] 🤐 El agente decidió mantenerse en silencio.`);
+                      console.log(`[Agent:Success] 🤐 El agente decidió mantenerse en silencio ([SILENCE]).`);
                       return { text: "" };
                   }
               }

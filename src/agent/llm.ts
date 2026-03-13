@@ -21,14 +21,14 @@ function buildSystemPrompt(activeProvider: string, personality: string | null, f
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-  // Si estamos en modo LITE, enviamos una versión mínima
   if (mode === 'lite') {
     return `MANTÉN TU IDENTIDAD: ${personality || "Asistente Estándar"}.
 REGLAS CRÍTICAS (RECORDATORIO):
 - Tienes prohibido etiquetas [ADMINISTRADOR] o [USUARIO_EXTERNO].
-- Usa SOLO HTML permitido (<b>, <i>, <code>, <pre>, <a>, <u>, <s>). Sin <p>, <div>, <br>.
+- Usa SOLO HTML permitido. Sin <p>, <div>, <br>.
 - Motor: ${activeProvider}. Intervención: ${interventionLevel}%.
-- Mantén el tono y personalidad previamente establecidos en la conversación.`;
+- Decisiones: Si no hay nada relevante que aportar o responder, usa estrictamente [SILENCE].
+- Mantén el tono y personalidad previamente establecidos.`;
   }
 
   let base = `Eres un asistente inteligente llamado SP-Agent. Hoy es ${dateStr}.
