@@ -634,7 +634,7 @@ const handleIncomingMessage = async (ctx: Context) => {
     }
   } catch (error: any) {
     console.error(`[Bot Error]`, error);
-    await ctx.reply(`<b>Error:</b> <code>${error.message}</code>`, { 
+    await ctx.reply(`⚠️ <b>Ha ocurrido un error inesperado.</b> Inténtalo de nuevo más tarde.`, { 
       parse_mode: 'HTML',
       message_thread_id: threadIdInt 
     });

@@ -5,7 +5,7 @@ export interface Tool {
   name: string;
   description: string;
   parameters: any;
-  execute: (args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean }) => Promise<string>;
+  execute: (args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => Promise<string>;
 }
 
 export const tools: Record<string, Tool> = {
@@ -96,7 +96,8 @@ export const tools: Record<string, Tool> = {
       },
       required: ['chatId', 'accion']
     },
-    execute: async ({ chatId, accion }) => {
+    execute: async ({ chatId, accion }, { isAdmin }) => {
+      if (!isAdmin) return "Error: No tienes permisos para configurar el acceso de grupos.";
       try {
         const { authorizeGroup, revokeGroup } = await import('../db/settings.js');
         if (accion === 'autorizar') {
@@ -168,7 +169,8 @@ export const tools: Record<string, Tool> = {
       },
       required: ['query'],
     },
-    execute: async ({ query }) => {
+    execute: async ({ query }, { isAdmin }) => {
+      if (!isAdmin) return "Error: Las búsquedas en internet están reservadas para el administrador.";
       try {
         const response = await fetch('https://api.tavily.com/search', {
           method: 'POST',
@@ -195,7 +197,8 @@ export const tools: Record<string, Tool> = {
       },
       required: ['query'],
     },
-    execute: async ({ query }) => {
+    execute: async ({ query }, { isAdmin }) => {
+      if (!isAdmin) return "Error: La búsqueda de imágenes está reservada para el administrador.";
       try {
         const response = await fetch('https://api.tavily.com/search', {
           method: 'POST',
@@ -235,8 +238,6 @@ export const tools: Record<string, Tool> = {
         }
         
         return "No se encontraron imágenes ACTUALES (2025-2026). Dile al usuario que no hay fotos recientes disponibles aún y no mandes fotos viejas.";
-        
-        return "No se encontraron imágenes en la galería de Tavily. Dile al usuario que no pudiste encontrar nada visual.";
       } catch (err: any) { return `Error en búsqueda de imágenes: ${err.message}`; }
     }
   },
@@ -275,7 +276,8 @@ export const tools: Record<string, Tool> = {
       },
       required: ['contexto'],
     },
-    execute: async ({ contexto }) => {
+    execute: async ({ contexto }, { isAdmin }) => {
+      if (!isAdmin) return "Error: El radar de tendencias está reservado para el administrador.";
       try {
         const query = `últimas noticias tendencias hoy ${contexto} breaking news top stories`;
         const response = await fetch('https://api.tavily.com/search', {
@@ -312,7 +314,8 @@ export const tools: Record<string, Tool> = {
       },
       required: ['chatId', 'mensaje']
     },
-    execute: async ({ chatId, threadId, mensaje }) => {
+    execute: async ({ chatId, threadId, mensaje }, { isAdmin }) => {
+      if (!isAdmin) return "Error: Solo el administrador puede enviar mensajes remotos.";
       try {
         const { getAuthorizedGroups } = await import('../db/settings.js');
         const { bot } = await import('../bot/index.js');
@@ -342,7 +345,8 @@ export const tools: Record<string, Tool> = {
       },
       required: ['nuevo_texto']
     },
-    execute: async ({ nuevo_texto, chatId: targetChatId }, { chatId: currentChatId }) => {
+    execute: async ({ nuevo_texto, chatId: targetChatId }, { chatId: currentChatId, isAdmin }) => {
+      if (!isAdmin) return "Error: Solo el administrador puede editar mensajes.";
       try {
         const finalChatId = targetChatId || currentChatId;
         const { getHistory } = await import('../db/index.js');
@@ -422,7 +426,8 @@ export const tools: Record<string, Tool> = {
         messageId: { type: 'number', description: 'Opcional: ID del mensaje específico a borrar. Si no se da, borra el último tuyo.' }
       }
     },
-    execute: async ({ chatId: targetChatId, messageId }, { chatId: currentChatId }) => {
+    execute: async ({ chatId: targetChatId, messageId }, { chatId: currentChatId, isAdmin }) => {
+      if (!isAdmin) return "Error: Solo el administrador puede borrar mensajes.";
       try {
         const finalChatId = targetChatId || currentChatId;
         const { bot } = await import('../bot/index.js');
@@ -454,7 +459,8 @@ export const tools: Record<string, Tool> = {
       },
       required: ['cantidad']
     },
-    execute: async ({ cantidad }, { chatId }) => {
+    execute: async ({ cantidad }, { chatId, isAdmin }) => {
+      if (!isAdmin) return "Error: Solo el administrador puede limpiar hilos.";
       try {
         const { bot } = await import('../bot/index.js');
         const { getHistory } = await import('../db/index.js');
@@ -508,7 +514,7 @@ export const getToolsDefinition = () => {
   }));
 };
 
-export const executeTool = async (name: string, args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean }) => {
+export const executeTool = async (name: string, args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => {
   const tool = tools[name];
   if (!tool) throw new Error(`Tool ${name} not found`);
   
