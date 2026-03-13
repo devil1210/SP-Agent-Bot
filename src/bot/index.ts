@@ -590,7 +590,7 @@ const handleIncomingMessage = async (ctx: Context) => {
         }
     }
 
-    const formattedText = isGroup ? `${senderName}: ${text}${quoteContext}` : `${text}${quoteContext}`;
+    const formattedText = `${text}${quoteContext}`;
     
     // Identificar si la cita es hacia el bot
     const quotedMsgId = ctx.message?.reply_to_message?.message_id;
