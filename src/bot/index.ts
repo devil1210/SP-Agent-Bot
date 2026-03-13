@@ -17,6 +17,7 @@ async function setBotCommands() {
         { command: "topics", description: "Configura el rol del bot en un hilo" },
         { command: "groups", description: "Lista hilos y sus IDs" },
         { command: "say", description: "Enviar mensaje remoto" },
+        { command: "del", description: "Borrar mensaje del bot (citar mensaje)" },
         { command: "manual", description: "Guía completa de comandos" }
     ];
 
@@ -37,6 +38,37 @@ async function setBotCommands() {
     } catch (e) {
         console.error("[Bot] ❌ Error configurando comandos:", e);
     }
+}
+
+/**
+ * Función para enviar notificaciones al chat privado del administrador
+ */
+async function notifyAdmin(ctx: Context, text: string) {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+  
+  try {
+    // Si ya estamos en privado, respondemos normalmente
+    if (ctx.chat?.type === 'private') {
+      await ctx.reply(text, { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Si estamos en un grupo, enviamos al privado
+    await ctx.api.sendMessage(userId, text, { parse_mode: 'HTML' });
+    
+    // Intentar borrar el comando del usuario en el grupo para mantenerlo limpio
+    try {
+      await ctx.deleteMessage();
+    } catch (e) {}
+  } catch (e) {
+    console.error(`[Bot] No se pudo enviar notificación privada a ${userId}:`, e);
+    // Fallback: responder en el grupo solo si falla la comunicación privada
+    await ctx.reply(`⚠️ [Privado fallido] ${text}`, { 
+      parse_mode: 'HTML', 
+      message_thread_id: ctx.message?.message_thread_id 
+    });
+  }
 }
 
 /**
@@ -90,7 +122,7 @@ bot.command('clear', adminOnly, async (ctx) => {
   const chatId = ctx.chat.id.toString();
   const threadId = ctx.message?.message_thread_id?.toString();
   await clearMemory(chatId, threadId);
-  await ctx.reply(`Memoria de este ${threadId ? 'hilo' : 'chat'} borrada.`, { parse_mode: 'HTML' });
+  await notifyAdmin(ctx, `✅ Memoria de este ${threadId ? 'hilo' : 'chat'} borrada.`);
 });
 
 bot.command('say', adminOnly, async (ctx) => {
@@ -127,7 +159,7 @@ bot.command('model', adminOnly, async (ctx) => {
   const model = ctx.match || 'gemini-3.1-flash-lite-preview';
   const threadId = ctx.message?.message_thread_id?.toString();
   await setUserModel(ctx.chat.id.toString(), model, threadId);
-  await ctx.reply(`Modelo cambiado a: \`${model}\``, { parse_mode: 'Markdown', message_thread_id: ctx.message?.message_thread_id });
+  await notifyAdmin(ctx, `✅ Modelo cambiado a: <code>${model}</code>`);
 });
 
 bot.command('intr', adminOnly, async (ctx) => {
@@ -137,16 +169,36 @@ bot.command('intr', adminOnly, async (ctx) => {
 
   if (!input) {
     const current = await getInterventionLevel(chatId, threadId);
-    return await ctx.reply(`📊 <b>Nivel de intervención actual:</b> <code>${current}%</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+    return await notifyAdmin(ctx, `📊 <b>Nivel de intervención actual:</b> <code>${current}%</code>`);
   }
 
   const level = parseInt(input);
   if (isNaN(level) || level < 0 || level > 100) {
-    return await ctx.reply("❌ Por favor, indica un número entre 0 y 100.");
+    return await notifyAdmin(ctx, "❌ Por favor, indica un número entre 0 y 100.");
   }
 
   await setInterventionLevel(chatId, level, threadId);
-  await ctx.reply(`🎯 <b>Frecuencia de intervención establecida al ${level}%</b> para este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+  await notifyAdmin(ctx, `🎯 <b>Frecuencia de intervención establecida al ${level}%</b> para este hilo.`);
+});
+
+bot.command('del', adminOnly, async (ctx) => {
+  const replyTo = ctx.message?.reply_to_message;
+  if (!replyTo) {
+    return await notifyAdmin(ctx, "💡 <b>Uso:</b> Cita un mensaje del bot con <code>/del</code> para eliminarlo.");
+  }
+
+  const me = await ctx.api.getMe();
+  if (replyTo.from?.id !== me.id) {
+    return await notifyAdmin(ctx, "❌ Solo puedo eliminar mis propios mensajes.");
+  }
+
+  try {
+    await ctx.api.deleteMessage(ctx.chat.id, replyTo.message_id);
+    await ctx.api.deleteMessage(ctx.chat.id, ctx.message!.message_id);
+    await notifyAdmin(ctx, `✅ Mensaje eliminado en <b>${ctx.chat.title || 'Grupo'}</b>.`);
+  } catch (e: any) {
+    await notifyAdmin(ctx, `❌ Error eliminando mensaje: ${e.message}`);
+  }
 });
 
 bot.command('persona', adminOnly, async (ctx) => {
@@ -160,7 +212,7 @@ bot.command('persona', adminOnly, async (ctx) => {
   if (parts.length === 1 && parts[0].startsWith('-')) {
     targetChatId = parts[0];
     const current = await getPersonality(targetChatId, currentThreadId);
-    return await ctx.reply(`🎭 <b>Personalidad actual [ID: ${targetChatId}]:</b>\n\n<code>${current || "Por defecto"}</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+    return await notifyAdmin(ctx, `🎭 <b>Personalidad actual [ID: ${targetChatId}]:</b>\n\n<code>${current || "Por defecto"}</code>`);
   }
 
   // Caso 2: /persona [ID] [instrucciones]
@@ -171,30 +223,30 @@ bot.command('persona', adminOnly, async (ctx) => {
   // Caso 3: /persona (sin nada, ver personalidad del chat actual)
   else if (!input) {
     const current = await getPersonality(targetChatId, currentThreadId);
-    return await ctx.reply(`🎭 <b>Tu personalidad en este hilo:</b>\n\n<code>${current || "Por defecto"}</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+    return await notifyAdmin(ctx, `🎭 <b>Tu personalidad en este hilo:</b>\n\n<code>${current || "Por defecto"}</code>`);
   }
 
   if (instructions.toLowerCase() === 'default') {
     await setPersonality(targetChatId, "", currentThreadId);
-    return await ctx.reply(`✅ Personalidad restablecida en este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+    return await notifyAdmin(ctx, `✅ Personalidad restablecida en este hilo.`);
   }
 
   await setPersonality(targetChatId, instructions, currentThreadId);
-  await ctx.reply(`✅ Personalidad actualizada para este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+  await notifyAdmin(ctx, `✅ Personalidad actualizada para este hilo.`);
 });
 
 bot.command('savepersona', adminOnly, async (ctx) => {
   const input = ctx.match.trim();
   const parts = input.split(/\s+/);
   if (parts.length < 2) {
-    return await ctx.reply("❌ Uso: `/savepersona [nombre] [prompt...]`", { parse_mode: 'Markdown' });
+    return await notifyAdmin(ctx, "❌ Uso: <code>/savepersona [nombre] [prompt...]</code>");
   }
 
   const name = parts[0];
   const prompt = parts.slice(1).join(' ');
   
   await savePersonality(name, prompt);
-  await ctx.reply(`✅ Personalidad <b>${name}</b> guardada en la biblioteca.`, { parse_mode: 'HTML' });
+  await notifyAdmin(ctx, `✅ Personalidad <b>${name}</b> guardada en la biblioteca.`);
 });
 
 bot.command('personas', adminOnly, async (ctx) => {
@@ -204,13 +256,13 @@ bot.command('personas', adminOnly, async (ctx) => {
   if (input) {
     const persona = saved.find(p => p.name.toLowerCase() === input.toLowerCase());
     if (persona) {
-      return await ctx.reply(`📜 <b>Prompt de "${persona.name}":</b>\n\n<code>${persona.content}</code>`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+      return await notifyAdmin(ctx, `📜 <b>Prompt de "${persona.name}":</b>\n\n<code>${persona.content}</code>`);
     }
-    return await ctx.reply(`❌ No encontré la personalidad "<b>${input}</b>".`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+    return await notifyAdmin(ctx, `❌ No encontré la personalidad "<b>${input}</b>".`);
   }
 
   if (saved.length === 0) {
-    return await ctx.reply("📚 La biblioteca de personalidades está vacía.\nUsa `/savepersona [nombre] [prompt]` para agregar una.");
+    return await notifyAdmin(ctx, "📚 La biblioteca de personalidades está vacía.\nUsa `/savepersona [nombre] [prompt]` para agregar una.");
   }
 
   let list = "📚 <b>Personalidades Disponibles:</b>\n\n";
@@ -219,49 +271,59 @@ bot.command('personas', adminOnly, async (ctx) => {
   });
   list += "\n<i>Para ver el prompt completo:</i>\n<code>/personas [nombre]</code>\n\n<i>Para usar una:</i>\n<code>/setpersona [nombre]</code>\n\n<i>Para editar:</i>\nUsa <code>/savepersona</code> con el mismo nombre.";
 
-  await ctx.reply(list, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+  await notifyAdmin(ctx, list);
 });
 
 bot.command('setpersona', adminOnly, async (ctx) => {
   const name = ctx.match.trim();
   if (!name) {
-    return await ctx.reply("❌ Especifica el nombre de la personalidad.\nEj: `/setpersona Tanya`", { parse_mode: 'Markdown' });
+    return await notifyAdmin(ctx, "❌ Especifica el nombre de la personalidad.\nEj: `/setpersona Tanya` aprovechando la cita o el texto.");
   }
 
   const saved = await getSavedPersonalities();
   const persona = saved.find(p => p.name.toLowerCase() === name.toLowerCase());
 
   if (!persona) {
-    return await ctx.reply(`❌ No encontré la personalidad "<b>${name}</b>" en la biblioteca.`, { parse_mode: 'HTML' });
+    return await notifyAdmin(ctx, `❌ No encontré la personalidad "<b>${name}</b>" en la biblioteca.`);
   }
 
   const threadId = ctx.message?.message_thread_id?.toString();
   await setPersonality(ctx.chat.id.toString(), persona.content, threadId);
   
-  await ctx.reply(`✅ Personalidad cambiada a: <b>${persona.name}</b> en este hilo.`, { parse_mode: 'HTML', message_thread_id: ctx.message?.message_thread_id });
+  await notifyAdmin(ctx, `✅ Personalidad cambiada a: <b>${persona.name}</b> en este hilo.`);
 });
 
 bot.command('groups', adminOnly, async (ctx) => {
     const authorized = await getAuthorizedGroups();
-    if (authorized.length === 0) return ctx.reply("No hay grupos autorizados.");
+    if (authorized.length === 0) return await notifyAdmin(ctx, "No hay grupos autorizados.");
     
     let msg = "<b>🏰 Tus Dominios (Grupos e Hilos):</b>\n\n";
     for (const group of authorized) {
         msg += `📁 <b>Grupo:</b> ${group.name} <code>${group.id}</code>\n`;
-        const threads = await getKnownThreads(group.id);
+        const knownThreads = await getKnownThreads(group.id);
         const activeThreads = await getAllowedThreads(group.id);
         const passiveThreads = await getPassiveThreads(group.id);
 
-        for (const t of threads) {
-            const isMember = activeThreads.includes(t.id);
-            const isConsultor = passiveThreads.includes(t.id);
+        // Consolidar IDs únicos de todas las fuentes
+        const allThreadIds = [...new Set([
+            ...knownThreads.map(t => t.id),
+            ...activeThreads,
+            ...passiveThreads
+        ])].sort((a, b) => a - b);
+
+        for (const threadId of allThreadIds) {
+            const known = knownThreads.find(t => t.id === threadId);
+            const isMember = activeThreads.includes(threadId);
+            const isConsultor = passiveThreads.includes(threadId);
             const role = isMember ? '🎭' : (isConsultor ? '🧐' : '🤖');
-            msg += `  ${role} #${t.id} - <i>${t.name}</i>\n`;
+            const threadName = known ? known.name : (threadId === 1 ? 'General' : 'Hilo Desconocido');
+            
+            msg += `  ${role} #${threadId} - <i>${threadName}</i>\n`;
         }
         msg += "\n";
     }
     msg += "<i>Leyenda: 🎭 Miembro | 🧐 Consultor | 🤖 Asistente</i>";
-    await ctx.reply(msg, { parse_mode: 'HTML' });
+    await notifyAdmin(ctx, msg);
 });
 
 // Registrar hilos nuevos o modificados
@@ -293,13 +355,13 @@ bot.command('allowgroup', adminOnly, async (ctx) => {
   } catch (e) {}
 
   await authorizeGroup(chatId, name);
-  await ctx.reply(`✅ Grupo <b>${name}</b> (<code>${chatId}</code>) autorizado.`, { parse_mode: 'HTML' });
+  await notifyAdmin(ctx, `✅ Grupo <b>${name}</b> (<code>${chatId}</code>) autorizado.`);
 });
 
 bot.command('revokegroup', adminOnly, async (ctx) => {
   const chatId = ctx.match.trim() || ctx.chat.id.toString();
   await revokeGroup(chatId);
-  await ctx.reply(`❌ Grupo \`${chatId}\` revocado.`, { parse_mode: 'Markdown' });
+  await notifyAdmin(ctx, `❌ Grupo <code>${chatId}</code> revocado.`);
 });
 
 /**
@@ -319,29 +381,29 @@ bot.command('features', adminOnly, async (ctx) => {
     const current = await getChatFeatures(targetChatId);
 
     if (actionParts.length === 0) {
-        return await ctx.reply(`🧩 <b>Módulos de conocimiento en <code>${targetChatId}</code>:</b>\n\n` +
+        return await notifyAdmin(ctx, `🧩 <b>Módulos de conocimiento en <code>${targetChatId}</code>:</b>\n\n` +
             `• 📚 <code>library</code>: ${current.includes('library') ? '✅ Activo' : '❌ Inactivo'}\n` +
             `• 🏭 <code>dev_prod</code> (Main): ${current.includes('dev_prod') ? '✅ Activo' : '❌ Inactivo'}\n` +
             `• 🧪 <code>dev_test</code> (V4): ${current.includes('dev_test') ? '✅ Activo' : '❌ Inactivo'}\n\n` +
-            `<i>Para activar/desactivar uno, escribe:</i>\n<code>/features ${targetChatId.startsWith('-') ? targetChatId + ' ' : ''}[modulo]</code>`, { parse_mode: 'HTML' });
+            `<i>Para activar/desactivar uno, escribe:</i>\n<code>/features ${targetChatId.startsWith('-') ? targetChatId + ' ' : ''}[modulo]</code>`);
     }
 
     const feature = actionParts[0].toLowerCase();
     const valid = ['library', 'dev_prod', 'dev_test'];
 
     if (!valid.includes(feature)) {
-        return await ctx.reply(`❌ Módulo no válido. Opciones: <code>${valid.join(', ')}</code>`, { parse_mode: 'HTML' });
+        return await notifyAdmin(ctx, `❌ Módulo no válido. Opciones: <code>${valid.join(', ')}</code>`);
     }
 
     let newList: string[];
     if (current.includes(feature)) {
         newList = current.filter(f => f !== feature);
         await setChatFeatures(targetChatId, newList);
-        await ctx.reply(`❌ Módulo <code>${feature}</code> desactivado para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+        await notifyAdmin(ctx, `❌ Módulo <code>${feature}</code> desactivado para <code>${targetChatId}</code>.`);
     } else {
         newList = [...current, feature];
         await setChatFeatures(targetChatId, newList);
-        await ctx.reply(`✅ Módulo <code>${feature}</code> activado para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+        await notifyAdmin(ctx, `✅ Módulo <code>${feature}</code> activado para <code>${targetChatId}</code>.`);
     }
 });
 
@@ -355,11 +417,6 @@ bot.command('topics', adminOnly, async (ctx) => {
   let targetChatId = ctx.chat.id.toString();
   let action = "";
   let targetThreadId: number | undefined = ctx.message?.message_thread_id;
-
-  // Lógica de detección de argumentos:
-  // Modo 1: /topics [miembro|consultor|...] (En el chat/hilo actual)
-  // Modo 2: /topics [group_id] [miembro|consultor|...] (Hilo general del grupo)
-  // Modo 3: /topics [group_id] [thread_id] [miembro|consultor|...] (Hilo específico)
 
   if (parts[0].startsWith('-')) {
     targetChatId = parts[0];
@@ -375,7 +432,7 @@ bot.command('topics', adminOnly, async (ctx) => {
   }
 
   if (!action) {
-     return await ctx.reply("💡 <b>Uso:</b>\n- En el grupo: <code>/topics miembro/consultor/asistente</code>\n- En privado: <code>/topics [group_id] [thread_id] [rol]</code>", { parse_mode: 'HTML' });
+     return await notifyAdmin(ctx, "💡 <b>Uso:</b>\n- En el grupo: <code>/topics miembro/consultor/asistente</code>\n- En privado: <code>/topics [group_id] [thread_id] [rol]</code>");
   }
 
   let active = await getAllowedThreads(targetChatId);
@@ -390,7 +447,7 @@ bot.command('topics', adminOnly, async (ctx) => {
     consultor = consultor.filter((id: number) => id !== finalThreadId);
     await setAllowedThreads(targetChatId, active);
     await setPassiveThreads(targetChatId, consultor);
-    await ctx.reply(`🎭 <b>Modo MIEMBRO</b> configurado ${label}.`, { parse_mode: 'HTML' });
+    await notifyAdmin(ctx, `🎭 <b>Modo MIEMBRO</b> configurado ${label}.`);
   } 
   else if (action === 'consultor') {
     consultor.push(finalThreadId);
@@ -398,7 +455,7 @@ bot.command('topics', adminOnly, async (ctx) => {
     active = active.filter((id: number) => id !== finalThreadId);
     await setAllowedThreads(targetChatId, active);
     await setPassiveThreads(targetChatId, consultor);
-    await ctx.reply(`🧐 <b>Modo CONSULTOR</b> configurado ${label}.`, { parse_mode: 'HTML' });
+    await notifyAdmin(ctx, `🧐 <b>Modo CONSULTOR</b> configurado ${label}.`);
   }
   else if (action === 'asistente' || action === 'disable') {
     active = active.filter((id: number) => id !== finalThreadId);
@@ -406,15 +463,15 @@ bot.command('topics', adminOnly, async (ctx) => {
     await setAllowedThreads(targetChatId, active);
     await setPassiveThreads(targetChatId, consultor);
     const msg = action === 'disable' ? `❌ <b>Deshabilitado</b>` : `🤖 <b>Modo ASISTENTE</b>`;
-    await ctx.reply(`${msg} ${label}.`, { parse_mode: 'HTML' });
+    await notifyAdmin(ctx, `${msg} ${label}.`);
   }
   else if (action === 'all') {
     await setAllowedThreads(targetChatId, []);
     await setPassiveThreads(targetChatId, []);
-    await ctx.reply(`🌐 <b>Modo GLOBAL</b> configurado para <code>${targetChatId}</code>.`, { parse_mode: 'HTML' });
+    await notifyAdmin(ctx, `🌐 <b>Modo GLOBAL</b> configurado para <code>${targetChatId}</code>.`);
   }
   else {
-    await ctx.reply("❌ Acción no reconocida. Usa: miembro, consultor, asistente, disable o all.", { parse_mode: 'HTML' });
+    await notifyAdmin(ctx, "❌ Acción no reconocida. Usa: miembro, consultor, asistente, disable o all.");
   }
 });
 
