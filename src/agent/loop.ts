@@ -49,7 +49,8 @@ export const processUserMessage = async (
       const features = await getChatFeatures(chatId);
       const interventionLevel = await getInterventionLevel(chatId, threadId);
       
-      console.log(`[Agent] Iniciando con ${history.length} mensajes de contexto. Persona: ${personality || 'Default'}. Intervención: ${interventionLevel}%`);
+      const persSummary = personality ? (personality.substring(0, 50).replace(/\n/g, ' ') + '...') : 'Estándar';
+      console.log(`[Agent] 🧠 Iniciando (Model: ${userModel}, Persona: ${persSummary}, Intervención: ${interventionLevel}%)`);
 
       const messages: Message[] = [
         ...history.map(m => ({ role: m.role as any, content: m.content })),
@@ -112,9 +113,11 @@ export const processUserMessage = async (
 
       while (iterations < MAX_ITERATIONS) {
           iterations++;
-          console.log(`[Agent:Loop] 🔄 Iteración ${iterations}...`);
-          const llmRes = await callLLM(messages, toolsDef, userModel, personality, features, interventionLevel);
-          console.log(`[Agent:Loop] 🤖 Motor activo: ${llmRes.provider}`);
+          const isLite = iterations > 1; // Usamos LITE para iteraciones de herramientas
+          if (isLite) console.log(`[Agent:Loop] 🔄 Re-procesando con herramientas (Iteración ${iterations})...`);
+          
+          const llmRes = await callLLM(messages, toolsDef, userModel, personality, features, interventionLevel, isLite ? 'lite' : 'full');
+          if (!isLite) console.log(`[Agent:Loop] 🤖 Motor activo: ${llmRes.provider}`);
           const responseMessage = llmRes.message;
 
           const toolCalls = responseMessage.tool_calls;

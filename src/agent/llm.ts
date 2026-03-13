@@ -17,9 +17,19 @@ const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-function buildSystemPrompt(activeProvider: string, personality: string | null, features: string[] = [], interventionLevel: number = 100) {
+function buildSystemPrompt(activeProvider: string, personality: string | null, features: string[] = [], interventionLevel: number = 100, mode: 'full' | 'lite' = 'full') {
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  // Si estamos en modo LITE, enviamos una versión mínima
+  if (mode === 'lite') {
+    return `MANTÉN TU IDENTIDAD: ${personality || "Asistente Estándar"}.
+REGLAS CRÍTICAS (RECORDATORIO):
+- Tienes prohibido etiquetas [ADMINISTRADOR] o [USUARIO_EXTERNO].
+- Usa SOLO HTML permitido (<b>, <i>, <code>, <pre>, <a>, <u>, <s>). Sin <p>, <div>, <br>.
+- Motor: ${activeProvider}. Intervención: ${interventionLevel}%.
+- Mantén el tono y personalidad previamente establecidos en la conversación.`;
+  }
 
   let base = `Eres un asistente inteligente llamado SP-Agent. Hoy es ${dateStr}.
 
@@ -180,7 +190,8 @@ export const callLLM = async (
   model: string = 'gemini-3.1-flash-lite-preview',
   personality: string | null = null,
   features: string[] = [],
-  interventionLevel: number = 100
+  interventionLevel: number = 100,
+  mode: 'full' | 'lite' = 'full'
 ): Promise<LLMResponse> => {
 
   const baseMessages = cleanMessages(messages);
@@ -202,7 +213,7 @@ export const callLLM = async (
   const geminiModelId = targetModel.startsWith('models/') ? targetModel : `models/${targetModel}`;
   const geminiBody: any = {
     model: geminiModelId,
-    messages: [{ role: 'system', content: buildSystemPrompt(geminiProvider, personality, features, interventionLevel) }, ...baseMessages],
+    messages: [{ role: 'system', content: buildSystemPrompt(geminiProvider, personality, features, interventionLevel, mode) }, ...baseMessages],
     temperature: 0.1
   };
   if (tools) geminiBody.tools = tools;
@@ -219,7 +230,7 @@ export const callLLM = async (
   const groqProvider = `Groq (${config.groqModel})`;
   const groqBody: any = {
     model: config.groqModel,
-    messages: [{ role: 'system', content: buildSystemPrompt(groqProvider, personality, features, interventionLevel) }, ...baseMessages],
+    messages: [{ role: 'system', content: buildSystemPrompt(groqProvider, personality, features, interventionLevel, mode) }, ...baseMessages],
     temperature: 0.1
   };
   if (tools) {
@@ -239,7 +250,7 @@ export const callLLM = async (
   const orProvider = `OpenRouter (${config.openRouterModel})`;
   const orBody: any = {
     model: config.openRouterModel,
-    messages: [{ role: 'system', content: buildSystemPrompt(orProvider, personality, features, interventionLevel) }, ...baseMessages],
+    messages: [{ role: 'system', content: buildSystemPrompt(orProvider, personality, features, interventionLevel, mode) }, ...baseMessages],
     temperature: 0.1
   };
   if (tools) orBody.tools = tools;
