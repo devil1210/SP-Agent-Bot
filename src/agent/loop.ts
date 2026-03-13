@@ -189,7 +189,9 @@ export const processUserMessage = async (
                   }
               }
 
-              console.log(`[Agent:Success] ✨ Respuesta final lista para enviar.`);
+              const mem = process.memoryUsage();
+              const rssMB = Math.round(mem.rss / 1024 / 1024);
+              console.log(`[Agent:Success] ✨ Respuesta final lista. Longitud: ${finalContent.length} chars. Memoria RSS: ${rssMB}MB`);
               return { text: finalContent, photoUrl: photoUrlToAttach };
           }
       }

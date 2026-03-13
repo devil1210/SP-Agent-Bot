@@ -719,26 +719,35 @@ const handleIncomingMessage = async (ctx: Context) => {
         isAdmin
     );
     
-    if (responseText || photoUrl) {
+    // PROTECCIÓN: Truncado de seguridad para límites de Telegram (4096)
+    let safeResponse = responseText;
+    if (safeResponse.length > 4000) {
+      console.log(`[Bot] ⚠️ Mensaje demasiado largo (${safeResponse.length}). Truncando...`);
+      safeResponse = safeResponse.substring(0, 3900) + "... (mensaje truncado por longitud)";
+    }
+
+    if (safeResponse || photoUrl) {
       if (photoUrl) {
           try {
+              console.log(`[Bot:Send] 📤 Enviando foto al chat ${chatId}`);
               const sent = await ctx.replyWithPhoto(photoUrl, {
-                  caption: responseText,
+                  caption: safeResponse,
                   parse_mode: 'HTML',
                   message_thread_id: threadIdInt
               });
-              await addMemory(chatId, 'assistant', responseText, threadId, sent.message_id);
+              await addMemory(chatId, 'assistant', safeResponse, threadId, sent.message_id);
               return;
           } catch (err) {
               console.error("[Bot] Error enviando foto, enviando solo texto.", err);
           }
       }
       
-      const sent = await ctx.reply(responseText, { 
+      console.log(`[Bot:Send] 📤 Enviando texto al chat ${chatId} (${safeResponse.length} chars)`);
+      const sent = await ctx.reply(safeResponse, { 
         parse_mode: 'HTML',
         message_thread_id: threadIdInt 
       });
-      await addMemory(chatId, 'assistant', responseText, threadId, sent.message_id);
+      await addMemory(chatId, 'assistant', safeResponse, threadId, sent.message_id);
     }
   } catch (error: any) {
     console.error(`[Bot Error]`, error);
