@@ -201,6 +201,57 @@ bot.command('del', adminOnly, async (ctx) => {
   }
 });
 
+/**
+ * Comando /edit: Edita un mensaje del bot mediante IA
+ */
+bot.command('edit', adminOnly, async (ctx) => {
+    const reply = ctx.message?.reply_to_message;
+    if (!reply) {
+        return await notifyAdmin(ctx, "❌ Debes citar un mensaje del bot para editarlo.");
+    }
+
+    const me = await ctx.api.getMe();
+    if (reply.from?.id !== me.id) {
+        return await notifyAdmin(ctx, "❌ Solo puedo editar mis propios mensajes.");
+    }
+
+    const instructions = ctx.match.trim();
+    if (!instructions) {
+        return await notifyAdmin(ctx, "❌ Por favor, proporciona las instrucciones de edición.\nEjemplo: <code>/edit hazlo más breve y quita las etiquetas p</code>");
+    }
+
+    const originalText = reply.text || reply.caption || "";
+    if (!originalText) {
+        return await notifyAdmin(ctx, "❌ El mensaje citado no tiene texto para editar.");
+    }
+
+    try {
+        // Importación dinámica para evitar ciclos si fuera necesario, aunque loop -> index es común
+        const { processEditRequest } = await import('../agent/loop.js');
+        
+        const threadId = ctx.chat.type === 'private' ? undefined : ctx.message?.message_thread_id?.toString();
+        const editedText = await processEditRequest(ctx.chat.id.toString(), originalText, instructions, threadId);
+
+        if (!editedText) {
+            return await notifyAdmin(ctx, "⚠️ La IA no generó texto para la edición.");
+        }
+
+        await ctx.api.editMessageText(ctx.chat.id, reply.message_id, editedText, {
+            parse_mode: 'HTML'
+        });
+
+        await notifyAdmin(ctx, `✅ Mensaje editado correctamente.`);
+        
+        // Limpiar el comando del grupo
+        if (ctx.chat.type !== 'private') {
+            try { await ctx.deleteMessage(); } catch (e) {}
+        }
+    } catch (e: any) {
+        console.error(`[Edit Command Error]`, e);
+        await notifyAdmin(ctx, `❌ Error al editar: ${e.message}`);
+    }
+});
+
 bot.command('persona', adminOnly, async (ctx) => {
   const input = ctx.match.trim();
   const parts = input.split(/\s+/);

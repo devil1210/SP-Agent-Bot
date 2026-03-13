@@ -197,3 +197,45 @@ export const processUserMessage = async (
     return { text: `⚠️ <b>Ha ocurrido un error interno.</b> Por favor, contacta con el administrador si el problema persiste.` };
   }
 };
+
+/**
+ * Procesa una solicitud de edición de un mensaje previo del bot.
+ */
+export const processEditRequest = async (
+    chatId: string,
+    originalText: string,
+    instructions: string,
+    threadId?: string
+): Promise<string> => {
+    try {
+        const userModel = await getUserModel(chatId, threadId);
+        const personality = await getPersonality(chatId, threadId);
+        const features = await getChatFeatures(chatId);
+
+        const editSystemPrompt = `Eres un experto en edición de contenido para el bot SP-Agent. 
+TU TAREA: Editar el "TEXTO ORIGINAL" siguiendo las "INSTRUCCIONES DEL ADMINISTRADOR".
+
+REGLAS CRÍTICAS:
+1. MANTÉN la personalidad actual: ${personality || 'Asistente Estándar'}.
+2. FORMATO TELEGRAM: Usa SOLO <b>, <i>, <code>, <pre>, <a>, <u>, <s>.
+3. PROHIBIDO etiquetas como <p>, <div>, <br>. Usa saltos de línea (\n).
+4. Si se te pide "ajustar al formato preestablecido", asegúrate de que el texto sea breve, directo, use emojis y cumpla las reglas de HTML de Telegram.
+5. Solo responde con el TEXTO FINAL EDITADO.`;
+
+        const messages: Message[] = [
+            { role: 'system', content: editSystemPrompt },
+            { role: 'user', content: `TEXTO ORIGINAL:\n"""${originalText}"""\n\nINSTRUCCIONES DEL ADMINISTRADOR:\n"""${instructions}"""` }
+        ];
+
+        const llmRes = await callLLM(messages, [], userModel, personality, features);
+        let finalContent = typeof llmRes.message.content === 'string' 
+            ? llmRes.message.content 
+            : JSON.stringify(llmRes.message.content);
+
+        finalContent = sanitizeTelegramHTML(finalContent);
+        return finalContent;
+    } catch (e) {
+        console.error(`[Agent Edit Error]`, e);
+        throw e;
+    }
+};
