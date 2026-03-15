@@ -296,3 +296,47 @@ export const savePersonality = async (name: string, content: string): Promise<vo
  * pero al usar el último encontrado en getSavedPersonalities podemos "sobreescribir".
  * Para un borrado real necesitaríamos modificar la DB directamente.
  */
+
+/**
+ * Gestión de Usuarios Autorizados (Dinámica)
+ */
+export const getAuthorizedUsers = async (): Promise<{id: string, name: string}[]> => {
+  try {
+    const history = await getHistory(GLOBAL_CONFIG_ID, 100);
+    const lastConfig = history
+      .filter(m => m.role === 'assistant' && m.content.includes('Usuarios autorizados:'))
+      .pop();
+
+    if (lastConfig) {
+      const match = lastConfig.content.match(/Usuarios autorizados: \[(.*)\]/);
+      if (match && match[1]) {
+        return match[1].split(',').map((s: string) => {
+          const part = s.trim();
+          const nameMatch = part.match(/^(.+?)\s*\(((-?\d+))\)$/);
+          if (nameMatch) {
+              return { name: nameMatch[1], id: nameMatch[2] };
+          }
+          return { id: part, name: 'Desconocido' };
+        }).filter((u: any) => u.id);
+      }
+    }
+    return [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const authorizeUser = async (userId: string, name: string = 'Usuario'): Promise<void> => {
+  let current = await getAuthorizedUsers();
+  current = current.filter(u => u.id !== userId);
+  const newList = [...current, { id: userId, name }];
+  const serialized = newList.map(u => `${u.name} (${u.id})`).join(', ');
+  await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Usuarios autorizados: [${serialized}]`);
+};
+
+export const revokeUser = async (userId: string): Promise<void> => {
+  let current = await getAuthorizedUsers();
+  current = current.filter(u => u.id !== userId);
+  const serialized = current.map(u => `${u.name} (${u.id})`).join(', ');
+  await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Usuarios autorizados: [${serialized}]`);
+};

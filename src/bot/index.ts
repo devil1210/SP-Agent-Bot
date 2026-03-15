@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction, GrammyError, HttpError } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality, getInterventionLevel, setInterventionLevel } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality, getInterventionLevel, setInterventionLevel, getAuthorizedUsers, authorizeUser, revokeUser } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -18,6 +18,9 @@ async function setBotCommands() {
         { command: "groups", description: "Lista hilos y sus IDs" },
         { command: "say", description: "Enviar mensaje remoto" },
         { command: "del", description: "Borrar mensaje del bot (citar mensaje)" },
+        { command: "allowuser", description: "Autorizar usuario (ID/Respuesta)" },
+        { command: "revokeuser", description: "Revocar usuario (ID)" },
+        { command: "users", description: "Lista de usuarios autorizados" },
         { command: "manual", description: "Guía completa de comandos" }
     ];
 
@@ -74,16 +77,25 @@ async function notifyAdmin(ctx: Context, text: string) {
 /**
  * Middleware para asegurar que solo usuarios autorizados puedan cambiar configuraciones
  */
+const isAdmin = async (userId: string | undefined): Promise<boolean> => {
+  if (!userId) return false;
+  const sUserId = userId.toString();
+  if (config.telegramAllowedUserIds.includes(sUserId)) return true;
+  
+  const dynamicUsers = await getAuthorizedUsers();
+  return dynamicUsers.some(u => u.id === sUserId);
+};
+
 const adminOnly = async (ctx: Context, next: NextFunction) => {
-  const userId = ctx.from?.id.toString();
-  if (!userId || !config.telegramAllowedUserIds.includes(userId)) return;
-  await next();
+  if (await isAdmin(ctx.from?.id.toString())) {
+    await next();
+  }
 };
 
 bot.use(async (ctx, next) => {
   if (ctx.chat?.type === 'private') {
-    const userId = ctx.from?.id.toString();
-    if (!userId || !config.telegramAllowedUserIds.includes(userId)) {
+    if (!(await isAdmin(ctx.from?.id.toString()))) {
+      const userId = ctx.from?.id.toString();
       console.warn(`[Bot] Acceso privado bloqueado para: ${userId}`);
       try {
         await ctx.reply("⛔ No tienes permisos para usar SP-Agent en privado. Esta conversación ha sido cerrada automáticamente.");
@@ -548,18 +560,20 @@ const handleIncomingMessage = async (ctx: Context) => {
       botUsername = me.username;
   }
   
-  const isReplyToBot = ctx.message?.reply_to_message?.from?.username === botUsername;
+  let isReplyToBot = ctx.message?.reply_to_message?.from?.username === botUsername;
   const fromUsername = ctx.from?.username || ctx.from?.id || "Desconocido";
   const userId = ctx.from?.id.toString();
-  const isAdmin = userId && config.telegramAllowedUserIds.includes(userId);
-  const senderRole = isAdmin ? "[ADMIN]" : "[USER]";
+  
+  // Verificación asíncrona de Admin
+  const isSAdmin = await isAdmin(userId);
+  const senderRole = isSAdmin ? "[ADMIN]" : "[USER]";
   const senderName = `${ctx.from?.first_name || "Usuario"} ${senderRole}`;
   
   // Capturar texto del mensaje citado para dar contexto (Importante para hilos pasivos)
   let quoteContext = "";
   if (ctx.message?.reply_to_message) {
       const qUserId = ctx.message.reply_to_message.from?.id.toString();
-      const qIsAdmin = qUserId && config.telegramAllowedUserIds.includes(qUserId);
+      const qIsAdmin = await isAdmin(qUserId);
       const qRole = qIsAdmin ? "[ADMIN]" : "[USER]";
       const quoteSender = `${ctx.message.reply_to_message.from?.first_name || "Alguien"} ${qRole}`;
       const quoteText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
@@ -599,6 +613,13 @@ const handleIncomingMessage = async (ctx: Context) => {
       // 3. Verificar mención/cita (Permisivo con límites de palabra)
       const mentionRegex = new RegExp(`@${botUsername}\\b`, 'i');
       isMentioned = mentionRegex.test(text);
+
+      // --- FILTRO FXTWITTER EN CITAS ---
+      // Si el mensaje citado es del bot y contiene fxtwitter.com, NO lo contamos como cita válida para disparar la IA.
+      if (isReplyToBot && ctx.message?.reply_to_message?.text?.includes('fxtwitter.com')) {
+          console.log("[Bot] 🛡️ Cita a corrección de Twitter detectada. Ignorando como disparador.");
+          isReplyToBot = false;
+      }
   }
 
   // --- AUTO-CONVERSIÓN FXTWITTER (Global) ---
