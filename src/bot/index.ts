@@ -1,7 +1,7 @@
 import { Bot, Context, NextFunction, GrammyError, HttpError } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
-import { addMemory } from '../db/index.js';
+import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix } from '../db/index.js';
 import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality, getInterventionLevel, setInterventionLevel, getAuthorizedUsers, authorizeUser, revokeUser } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
@@ -21,6 +21,7 @@ async function setBotCommands() {
         { command: "allowuser", description: "Autorizar usuario (ID/Respuesta)" },
         { command: "revokeuser", description: "Revocar usuario (ID)" },
         { command: "users", description: "Lista de usuarios autorizados" },
+        { command: "autofix", description: "Activa/Desactiva auto-corrección de Twitter" },
         { command: "manual", description: "Guía completa de comandos" }
     ];
 
@@ -115,6 +116,26 @@ bot.use(async (ctx, next) => {
 // Comandos básicos
 bot.command('start', async (ctx) => {
     await ctx.reply("¡Hola! Soy SP-Agent avanzado. Ahora tengo visión, búsqueda en internet y memoria total.", { parse_mode: 'HTML' });
+});
+
+bot.command('autofix', async (ctx) => {
+    const userId = ctx.from?.id.toString();
+    if (!userId) return;
+
+    const arg = ctx.match.trim().toLowerCase();
+    let enabled = false;
+
+    if (arg === 'si' || arg === 'on' || arg === 'true' || arg === 'activar') {
+        enabled = true;
+    } else if (arg === 'no' || arg === 'off' || arg === 'false' || arg === 'desactivar') {
+        enabled = false;
+    } else {
+        const prefs = await getUserPreferences(userId);
+        return await ctx.reply(`🔧 <b>Preferencia de Twitter Auto-Fix:</b>\n\nEstado actual: ${prefs.twitter_auto_fix ? '✅ ACTIVADO' : '❌ DESACTIVADO'}\n\nPara cambiarlo usa:\n<code>/autofix si</code> o <code>/autofix no</code>`, { parse_mode: 'HTML' });
+    }
+
+    await setTwitterAutoFix(userId, enabled);
+    await ctx.reply(`✅ <b>Preferencia actualizada:</b> La corrección automática de Twitter ha sido ${enabled ? 'ACTIVADA' : 'DESACTIVADA'}.`, { parse_mode: 'HTML' });
 });
 
 bot.command('id', adminOnly, async (ctx) => {
@@ -564,6 +585,11 @@ const handleIncomingMessage = async (ctx: Context) => {
   const fromUsername = ctx.from?.username || ctx.from?.id || "Desconocido";
   const userId = ctx.from?.id.toString();
   
+  if (!userId) {
+      console.warn("[Bot] ⚠️ No se pudo determinar el ID del usuario. Ignorando mensaje.");
+      return;
+  }
+  
   // Verificación asíncrona de Admin
   const isSAdmin = await isAdmin(userId);
   const senderRole = isSAdmin ? "[ADMIN]" : "[USER]";
@@ -624,7 +650,9 @@ const handleIncomingMessage = async (ctx: Context) => {
 
   // --- AUTO-CONVERSIÓN FXTWITTER (Global) ---
   if (text.includes('x.com') || text.includes('twitter.com')) {
-      const shouldConvert = isPrivate || isReplyToBot || isMentioned;
+      const prefs = await getUserPreferences(userId);
+      const isAutoFixEnabled = prefs.twitter_auto_fix;
+      const shouldConvert = isPrivate || isReplyToBot || isMentioned || isAutoFixEnabled;
       
       if (shouldConvert) {
           // Limpiar la mención y cualquier espacio/salto de línea sobrante después de ella
@@ -636,7 +664,7 @@ const handleIncomingMessage = async (ctx: Context) => {
               .trim();
           
           if (fxText !== text.trim() && fxText !== '') {
-              console.log("[Bot] 🔄 Convirtiendo link de Twitter...");
+              console.log(`[Bot] 🔄 Convirtiendo link de Twitter (AutoFix=${isAutoFixEnabled})...`);
               const senderName = ctx.from?.first_name || "Usuario";
               const senderLink = `<a href="tg://user?id=${ctx.from?.id}">${senderName}</a>`;
               const finalMsg = `<b>${senderLink}</b>:\n\n${fxText}`;
@@ -651,6 +679,17 @@ const handleIncomingMessage = async (ctx: Context) => {
               } catch (e) {
                   console.warn("[Bot] No se pudo borrar el mensaje original");
               }
+
+              // Gestionar contador de uso para el prompt de opt-in
+              if (!isAutoFixEnabled && (isReplyToBot || isMentioned)) {
+                  const count = await incrementTwitterFixCount(userId);
+                  if (count === 3) {
+                      await ctx.reply(`💡 Veo que useles pedirme corregir enlaces de Twitter.\n¿Quieres que lo haga <b>automáticamente</b> cada vez que envíes uno sin que tengas que mencionarme?\n\n(Responde "sí" para activar o "no" para seguir manual)`, { 
+                          parse_mode: 'HTML',
+                          message_thread_id: threadIdInt
+                      });
+                  }
+              }
               
               // Verificamos si SOLO hay un link después de quitar la mención
               const cleanText = text.replace(new RegExp(`@${botUsername}\\b`, 'gi'), '').trim();
@@ -661,6 +700,22 @@ const handleIncomingMessage = async (ctx: Context) => {
                   return; 
               }
               console.log("[Bot] 🗣️ El mensaje contiene texto adicional. Procesando con IA...");
+          }
+      }
+  }
+
+  // --- GESTIÓN DE RESPUESTA A OPT-IN ---
+  if (isReplyToBot) {
+      const replyMsg = ctx.message?.reply_to_message?.text || "";
+      const lowerText = text.toLowerCase().trim();
+      if (replyMsg.includes('automáticamente cada vez que envíes uno')) {
+          if (['sí', 'si', 'claro', 'activar', 'aceptar', 'ok', 'vale'].includes(lowerText)) {
+              await setTwitterAutoFix(userId, true);
+              await ctx.reply("✅ ¡Entendido! A partir de ahora corregiré tus enlaces de Twitter automáticamente.");
+              return;
+          } else if (['no', 'paso', 'cancelar', 'desactivar'].includes(lowerText)) {
+              await ctx.reply("👍 De acuerdo, seguiremos de forma manual.");
+              return;
           }
       }
   }
@@ -734,6 +789,7 @@ const handleIncomingMessage = async (ctx: Context) => {
 
     const { text: responseText, photoUrl } = await processUserMessage(
         chatId, 
+        userId!,
         formattedText, 
         threadId, 
         attachments, 

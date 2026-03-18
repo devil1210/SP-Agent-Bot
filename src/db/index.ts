@@ -109,3 +109,60 @@ export const searchLongTermMemory = async (chatId: string, query: string, count:
     return [];
   }
 };
+
+/**
+ * 🛠️ PREFERENCIAS DE USUARIO (Twitter Auto-Fix, etc.)
+ */
+
+export interface UserPreferences {
+  user_id: string;
+  twitter_fix_count: number;
+  twitter_auto_fix: boolean;
+}
+
+export const getUserPreferences = async (userId: string): Promise<UserPreferences> => {
+  const { data, error } = await db
+    .from('user_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[DB Error] getUserPreferences:', error.message);
+  }
+
+  return data || { user_id: userId, twitter_fix_count: 0, twitter_auto_fix: false };
+};
+
+export const incrementTwitterFixCount = async (userId: string): Promise<number> => {
+  const prefs = await getUserPreferences(userId);
+  const newCount = (prefs.twitter_fix_count || 0) + 1;
+
+  const { error } = await db
+    .from('user_preferences')
+    .upsert({ 
+      user_id: userId, 
+      twitter_fix_count: newCount,
+      updated_at: new Date().toISOString()
+    });
+
+  if (error) {
+    console.error('[DB Error] incrementTwitterFixCount:', error.message);
+  }
+
+  return newCount;
+};
+
+export const setTwitterAutoFix = async (userId: string, enabled: boolean): Promise<void> => {
+  const { error } = await db
+    .from('user_preferences')
+    .upsert({ 
+      user_id: userId, 
+      twitter_auto_fix: enabled,
+      updated_at: new Date().toISOString()
+    });
+
+  if (error) {
+    console.error('[DB Error] setTwitterAutoFix:', error.message);
+  }
+};

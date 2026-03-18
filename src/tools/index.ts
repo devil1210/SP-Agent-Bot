@@ -5,7 +5,7 @@ export interface Tool {
   name: string;
   description: string;
   parameters: any;
-  execute: (args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => Promise<string>;
+  execute: (args: any, context: { chatId: string, userId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => Promise<string>;
 }
 
 export const tools: Record<string, Tool> = {
@@ -500,6 +500,27 @@ export const tools: Record<string, Tool> = {
         return `❌ Error al borrar el mensaje citado: ${e.message}`;
       }
     }
+  },
+  
+  configurar_autofix_twitter: {
+    name: 'configurar_autofix_twitter',
+    description: 'Activa o desactiva la corrección automática de enlaces de Twitter/X para el usuario actual.',
+    parameters: {
+      type: 'object',
+      properties: {
+        activar: { type: 'boolean', description: 'Si es true, se activa el auto-fix; si es false, se desactiva.' }
+      },
+      required: ['activar']
+    },
+    execute: async ({ activar }, { userId }) => {
+        try {
+            const { setTwitterAutoFix } = await import('../db/index.js');
+            await setTwitterAutoFix(userId, activar);
+            return `✅ La corrección automática de enlaces de Twitter/X ha sido ${activar ? 'ACTIVADA' : 'DESACTIVADA'} para ti.`;
+        } catch (e: any) {
+            return `Error: ${e.message}`;
+        }
+    }
   }
 };
 
@@ -514,7 +535,7 @@ export const getToolsDefinition = () => {
   }));
 };
 
-export const executeTool = async (name: string, args: any, context: { chatId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => {
+export const executeTool = async (name: string, args: any, context: { chatId: string, userId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => {
   const tool = tools[name];
   if (!tool) throw new Error(`Tool ${name} not found`);
   

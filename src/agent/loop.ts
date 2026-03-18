@@ -30,6 +30,7 @@ export interface Attachment {
 
 export const processUserMessage = async (
     chatId: string, 
+    userId: string,
     text: string, 
     threadId?: string, 
     attachments: Attachment[] = [],
@@ -137,6 +138,7 @@ export const processUserMessage = async (
                   console.log(`[Agent:Tool] 🛠️ Ejecutando: ${toolCall.function.name}(${args})`);
                   const result = await executeTool(toolCall.function.name, toolCall.function.arguments, { 
                       chatId, 
+                      userId,
                       quotedMsgId, 
                       qIsAssistant,
                       isAdmin
