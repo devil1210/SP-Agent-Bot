@@ -442,7 +442,7 @@ export const tools: Record<string, Tool> = {
         }
 
         await bot.api.deleteMessage(finalChatId, msgToDelete);
-        return "✅ Mensaje eliminado correctamente.";
+        return "[SILENCE]";
       } catch (e: any) {
         return `❌ Error al borrar: ${e.message}`;
       }
@@ -477,7 +477,7 @@ export const tools: Record<string, Tool> = {
             await bot.api.deleteMessage(chatId, Number(msg.msg_id));
           } catch (e) {}
         }
-        return `✅ Se han limpiado ${assistantMsgs.length} mensajes.`;
+        return "[SILENCE]";
       } catch (e: any) {
         return `❌ Error en limpieza: ${e.message}`;
       }
@@ -495,7 +495,7 @@ export const tools: Record<string, Tool> = {
         
         const { bot } = await import('../bot/index.js');
         await bot.api.deleteMessage(chatId, quotedMsgId);
-        return "✅ Mensaje citado eliminado correctamente.";
+        return "[SILENCE]";
       } catch (e: any) {
         return `❌ Error al borrar el mensaje citado: ${e.message}`;
       }
