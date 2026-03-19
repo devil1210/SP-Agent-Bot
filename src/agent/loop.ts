@@ -1,7 +1,7 @@
 import { callLLM, Message } from './llm.js';
 import { getToolsDefinition, executeTool } from '../tools/index.js';
 import { getHistory, addMemory } from '../db/index.js';
-import { getUserModel, getPersonality, getChatFeatures, getInterventionLevel } from '../db/settings.js';
+import { getUserModel, getPersonality, getChatFeatures, getInterventionLevel, getPersonalityParams } from '../db/settings.js';
 
 /**
  * Escapa caracteres que rompen el HTML de Telegram pero mantiene las etiquetas permitidas
@@ -49,6 +49,7 @@ export const processUserMessage = async (
       const personality = await getPersonality(chatId, threadId);
       const features = await getChatFeatures(chatId);
       const interventionLevel = await getInterventionLevel(chatId, threadId);
+      const personalityParams = await getPersonalityParams(chatId, threadId);
       
       const persSummary = personality ? (personality.substring(0, 50).replace(/\n/g, ' ') + '...') : 'Estándar';
       console.log(`[Agent] 🧠 Iniciando (Model: ${userModel}, Persona: ${persSummary}, Intervención: ${interventionLevel}%)`);
@@ -117,7 +118,7 @@ export const processUserMessage = async (
           const isLite = iterations > 1; // Usamos LITE para iteraciones de herramientas
           if (isLite) console.log(`[Agent:Loop] 🔄 Re-procesando con herramientas (Iteración ${iterations})...`);
           
-          const llmRes = await callLLM(messages, toolsDef, userModel, personality, features, interventionLevel, isLite ? 'lite' : 'full');
+          const llmRes = await callLLM(messages, toolsDef, userModel, personality, features, interventionLevel, isLite ? 'lite' : 'full', personalityParams);
           if (!isLite) console.log(`[Agent:Loop] 🤖 Motor activo: ${llmRes.provider}`);
           const responseMessage = llmRes.message;
 
@@ -218,6 +219,7 @@ export const assessMessageValue = async (
         const userModel = await getUserModel(chatId, threadId);
         const personality = await getPersonality(chatId, threadId);
         const features = await getChatFeatures(chatId);
+        const personalityParams = await getPersonalityParams(chatId, threadId);
 
         const systemPrompt = `Eres un filtro de calidad para el bot SP-Agent.
 Tu única tarea es decidir si el mensaje del usuario merece una respuesta del bot.
@@ -242,7 +244,7 @@ Responde ÚNICAMENTE con "[RESPOND]" si tiene valor o "[SILENCE]" si no lo tiene
 
         // Usamos modo 'lite' para rapidez y bajo consumo
         const { callLLM } = await import('./llm.js');
-        const llmRes = await callLLM(messages, [], userModel, personality, features, 100, 'lite');
+        const llmRes = await callLLM(messages, [], userModel, personality, features, 100, 'lite', personalityParams);
         
         const content = typeof llmRes.message.content === 'string' 
             ? llmRes.message.content 

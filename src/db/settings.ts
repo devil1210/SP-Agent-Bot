@@ -340,3 +340,36 @@ export const revokeUser = async (userId: string): Promise<void> => {
   const serialized = current.map(u => `${u.name} (${u.id})`).join(', ');
   await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Usuarios autorizados: [${serialized}]`);
 };
+
+/**
+ * Gestión de Parámetros de Personalidad (0-100)
+ */
+export const getPersonalityParams = async (chatId: string, threadId?: string): Promise<Record<string, number>> => {
+  try {
+    const history = await getSettingsHistory(chatId, threadId);
+    const params: Record<string, number> = {};
+    
+    // Procesamos de más antiguo a más nuevo para que el último prevalezca
+    history
+      .filter(m => m.role === 'assistant' && m.content.includes('PersonalityParam ['))
+      .forEach(m => {
+        const match = m.content.match(/PersonalityParam \[(.*?)\]: (\d+)/);
+        if (match) {
+          const param = match[1].toLowerCase();
+          const value = parseInt(match[2]);
+          if (!isNaN(value)) {
+            params[param] = Math.min(100, Math.max(0, value));
+          }
+        }
+      });
+    
+    return params;
+  } catch (e) {
+    return {};
+  }
+};
+
+export const setPersonalityParam = async (chatId: string, param: string, value: number, threadId?: string): Promise<void> => {
+  const safeValue = Math.min(100, Math.max(0, value));
+  await addMemory(chatId, 'assistant', `PersonalityParam [${param.toLowerCase()}]: ${safeValue}`, threadId);
+};

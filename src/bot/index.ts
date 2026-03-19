@@ -2,7 +2,7 @@ import { Bot, Context, NextFunction, GrammyError, HttpError } from 'grammy';
 import { config } from '../config.js';
 import { processUserMessage, Attachment } from '../agent/loop.js';
 import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix } from '../db/index.js';
-import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality, getInterventionLevel, setInterventionLevel, getAuthorizedUsers, authorizeUser, revokeUser } from '../db/settings.js';
+import { getAllowedThreads, setAllowedThreads, setUserModel, getAuthorizedGroups, authorizeGroup, revokeGroup, getPersonality, setPersonality, getPassiveThreads, setPassiveThreads, setThreadName, getKnownThreads, getChatFeatures, setChatFeatures, getSavedPersonalities, savePersonality, getInterventionLevel, setInterventionLevel, getAuthorizedUsers, authorizeUser, revokeUser, getPersonalityParams, setPersonalityParam } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
 
@@ -22,7 +22,8 @@ async function setBotCommands() {
         { command: "allowuser", description: "Autorizar usuario (ID/Respuesta)" },
         { command: "revokeuser", description: "Revocar usuario (ID)" },
         { command: "users", description: "Lista de usuarios autorizados" },
-        { command: "autofix", description: "Activa/Desactiva auto-corrección de Twitter" }
+        { command: "autofix", description: "Activa/Desactiva auto-corrección de Twitter" },
+        { command: "config", description: "Configurar parámetros de personalidad (0-100)" }
     ];
 
     try {
@@ -144,6 +145,7 @@ bot.command('help', adminOnly, async (ctx) => {
 • /edit [instrucciones] - Edita un mensaje mío con IA (citándolo)
 • /autofix [si/no] - Activa/Desactiva auto-corrección de Twitter
 • /features - Gestiona módulos de conocimiento (ej: library)
+• /config [param] [valor] - Ajusta rasgos (sarcasmo, interés, etc.) 0-100
 
 <i>Nota: Todos los comandos de configuración se envían a tu chat privado por seguridad.</i>`;
 
@@ -248,6 +250,56 @@ bot.command('intr', adminOnly, async (ctx) => {
 
   await setInterventionLevel(chatId, level, threadId);
   await notifyAdmin(ctx, `🎯 <b>Frecuencia de intervención establecida al ${level}%</b> para este hilo.`);
+});
+
+bot.command('config', adminOnly, async (ctx) => {
+  const input = ctx.match.trim();
+  const threadId = ctx.message?.message_thread_id?.toString();
+  const chatId = ctx.chat.id.toString();
+
+  if (!input) {
+    const params = await getPersonalityParams(chatId, threadId);
+    let msg = "⚙️ <b>Configuración de Personalidad Actual:</b>\n\n";
+    const entries = Object.entries(params);
+    if (entries.length === 0) {
+      msg += "<i>No hay parámetros personalizados. Usando valores estándar (50/100).</i>";
+    } else {
+      entries.forEach(([k, v]) => {
+        msg += `• <b>${k}</b>: <code>${v}/100</code>\n`;
+      });
+    }
+    msg += "\n\n<b>Rasgos disponibles:</b>\nsarcasmo, interés, trivialidad, intervención, emoción, frialdad, agresividad, empatía, creatividad.\n\n<b>Uso:</b> <code>/config [rasgo] [0-100]</code>";
+    return await notifyAdmin(ctx, msg);
+  }
+
+  const parts = input.split(/\s+/);
+  if (parts.length < 2) {
+    return await notifyAdmin(ctx, "❌ Uso: <code>/config [rasgo] [valor 0-100]</code>");
+  }
+
+  const trait = parts[0].toLowerCase();
+  const value = parseInt(parts[1]);
+
+  const validTraits = ['sarcasmo', 'interes', 'interés', 'trivialidad', 'intervencion', 'intervención', 'emocion', 'emoción', 'frialdad', 'agresividad', 'empatia', 'empatía', 'creatividad'];
+  if (!validTraits.includes(trait)) {
+    return await notifyAdmin(ctx, `❌ Rasgo no reconocido. Disponibles: ${validTraits.join(', ')}`);
+  }
+
+  if (isNaN(value) || value < 0 || value > 100) {
+    return await notifyAdmin(ctx, "❌ El valor debe ser un número entre 0 y 100.");
+  }
+
+  // Normalizar nombres con tildes para la DB
+  const traitMap: Record<string, string> = {
+    'interés': 'interes',
+    'intervención': 'intervencion',
+    'emoción': 'emocion',
+    'empatía': 'empatia'
+  };
+  const finalTrait = traitMap[trait] || trait;
+
+  await setPersonalityParam(chatId, finalTrait, value, threadId);
+  await notifyAdmin(ctx, `✅ Rasgo <b>${finalTrait}</b> actualizado a <code>${value}/100</code>.`);
 });
 
 bot.command('del', adminOnly, async (ctx) => {
@@ -672,6 +724,28 @@ const handleIncomingMessage = async (ctx: Context) => {
       // 3. Verificar mención/cita (Permisivo con límites de palabra)
       const mentionRegex = new RegExp(`@${botUsername}\\b`, 'i');
       isMentioned = mentionRegex.test(text);
+
+      // --- DETECCIÓN POR NOMBRE DE PERSONAJE ---
+      if (!isMentioned) {
+          const currentPersonality = await getPersonality(chatId, threadId);
+          if (currentPersonality) {
+              // Intentar extraer el nombre de forma más robusta
+              // Buscamos patrones: "Eres Kurisu", "Soy Tanya", "Actúa como Christina", etc.
+              const nameMatch = currentPersonality.match(/(?:eres|soy|llamas|como|personaje|asumes el rol de)\s+([A-Z][A-Za-zÁÉÍÓÚñáéíóú\s]+?)(?:[\.!,;]|\n|$)/i);
+              if (nameMatch) {
+                  const charName = nameMatch[1].trim();
+                  const charFirstName = charName.split(/\s+/)[0];
+                  // Si el nombre tiene al menos 3 caracteres
+                  if (charFirstName.length >= 3) {
+                      const charRegex = new RegExp(`\\b${charFirstName}\\b`, 'i');
+                      if (charRegex.test(text)) {
+                          console.log(`[Bot] 🎭 Mención detectada por nombre de personaje: ${charFirstName}`);
+                          isMentioned = true;
+                      }
+                  }
+              }
+          }
+      }
 
       // --- FILTRO FXTWITTER EN CITAS ---
       // Si el mensaje citado es del bot y contiene fxtwitter.com, NO lo contamos como cita válida para disparar la IA.
