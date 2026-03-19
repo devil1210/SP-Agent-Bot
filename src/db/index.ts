@@ -143,6 +143,7 @@ export const incrementTwitterFixCount = async (userId: string): Promise<number> 
     .upsert({ 
       user_id: userId, 
       twitter_fix_count: newCount,
+      twitter_auto_fix: prefs.twitter_auto_fix,
       updated_at: new Date().toISOString()
     });
 
@@ -154,10 +155,12 @@ export const incrementTwitterFixCount = async (userId: string): Promise<number> 
 };
 
 export const setTwitterAutoFix = async (userId: string, enabled: boolean): Promise<void> => {
+  const prefs = await getUserPreferences(userId);
   const { error } = await db
     .from('user_preferences')
     .upsert({ 
       user_id: userId, 
+      twitter_fix_count: prefs.twitter_fix_count,
       twitter_auto_fix: enabled,
       updated_at: new Date().toISOString()
     });

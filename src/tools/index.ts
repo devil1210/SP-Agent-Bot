@@ -504,19 +504,21 @@ export const tools: Record<string, Tool> = {
   
   configurar_autofix_twitter: {
     name: 'configurar_autofix_twitter',
-    description: 'Activa o desactiva la corrección automática de enlaces de Twitter/X para el usuario actual.',
+    description: 'Activa o desactiva la corrección automática de enlaces de Twitter/X. Los ADMINISTRADORES pueden aplicarlo a otros si conocen su ID.',
     parameters: {
       type: 'object',
       properties: {
-        activar: { type: 'boolean', description: 'Si es true, se activa el auto-fix; si es false, se desactiva.' }
+        activar: { type: 'boolean', description: 'Si es true, se activa el auto-fix; si es false, se desactiva.' },
+        targetUserId: { type: 'string', description: 'Opcional. ID del usuario a configurar (solo para ADMINISTRADORES).' }
       },
       required: ['activar']
     },
-    execute: async ({ activar }, { userId }) => {
+    execute: async ({ activar, targetUserId }, { userId, isAdmin }) => {
+        const finalUserId = (isAdmin && targetUserId) ? targetUserId : userId;
         try {
             const { setTwitterAutoFix } = await import('../db/index.js');
-            await setTwitterAutoFix(userId, activar);
-            return `✅ La corrección automática de enlaces de Twitter/X ha sido ${activar ? 'ACTIVADA' : 'DESACTIVADA'} para ti.`;
+            await setTwitterAutoFix(finalUserId, activar);
+            return `✅ La corrección automática de enlaces de Twitter/X ha sido ${activar ? 'ACTIVADA' : 'DESACTIVADA'} para ${finalUserId === userId ? 'ti' : 'el usuario ' + finalUserId}.`;
         } catch (e: any) {
             return `Error: ${e.message}`;
         }

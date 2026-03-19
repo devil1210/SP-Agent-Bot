@@ -593,7 +593,7 @@ const handleIncomingMessage = async (ctx: Context) => {
   // Verificación asíncrona de Admin
   const isSAdmin = await isAdmin(userId);
   const senderRole = isSAdmin ? "[ADMIN]" : "[USER]";
-  const senderName = `${ctx.from?.first_name || "Usuario"} ${senderRole}`;
+  const senderName = `${ctx.from?.first_name || "Usuario"} (ID: ${userId}) ${senderRole}`;
   
   // Capturar texto del mensaje citado para dar contexto (Importante para hilos pasivos)
   let quoteContext = "";
@@ -653,6 +653,8 @@ const handleIncomingMessage = async (ctx: Context) => {
       const prefs = await getUserPreferences(userId);
       const isAutoFixEnabled = prefs.twitter_auto_fix;
       const shouldConvert = isPrivate || isReplyToBot || isMentioned || isAutoFixEnabled;
+      
+      console.log(`[Bot:Debug] Twitter link detected. userId=${userId}, isAutoFixEnabled=${isAutoFixEnabled}, shouldConvert=${shouldConvert}`);
       
       if (shouldConvert) {
           // Limpiar la mención y cualquier espacio/salto de línea sobrante después de ella
