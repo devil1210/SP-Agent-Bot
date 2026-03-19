@@ -896,7 +896,7 @@ const handleIncomingMessage = async (ctx: Context) => {
 
   // --- 4ª VERIFICACIÓN: ANÁLISIS DE VALOR (LLM Assessment) ---
   const { assessMessageValue } = await import('../agent/loop.js');
-  const hasValue = await assessMessageValue(chatId, text, threadId);
+  const hasValue = await assessMessageValue(chatId, text, threadId, isMentioned);
 
   console.log(`[Bot] 🎯 Respondiendo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Activo: ${isGroup ? (isActiveThread ? 'Sí' : 'No') : 'Privado'}, Valor: ${hasValue})`);
 

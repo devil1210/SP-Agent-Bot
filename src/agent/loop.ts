@@ -213,8 +213,10 @@ export const processUserMessage = async (
 export const assessMessageValue = async (
     chatId: string,
     text: string,
-    threadId?: string
+    threadId?: string,
+    isMentioned: boolean = false
 ): Promise<boolean> => {
+    if (isMentioned) return true; // Si es mención directa, siempre tiene valor responder.
     try {
         const userModel = await getUserModel(chatId, threadId);
         const personality = await getPersonality(chatId, threadId);
