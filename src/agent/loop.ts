@@ -207,7 +207,59 @@ export const processUserMessage = async (
 };
 
 /**
+ * Evalúa si un mensaje tiene valor suficiente para que el bot responda.
+ */
+export const assessMessageValue = async (
+    chatId: string,
+    text: string,
+    threadId?: string
+): Promise<boolean> => {
+    try {
+        const userModel = await getUserModel(chatId, threadId);
+        const personality = await getPersonality(chatId, threadId);
+        const features = await getChatFeatures(chatId);
+
+        const systemPrompt = `Eres un filtro de calidad para el bot SP-Agent.
+Tu única tarea es decidir si el mensaje del usuario merece una respuesta del bot.
+
+CRITERIOS PARA NO RESPONDER (RETORNAR [SILENCE]):
+1. El mensaje es trivial (risas, saludos cortos, emojis sueltos, agradecimientos simples como "gracias", "ok", "ty").
+2. Responder no aportaría valor real a la conversación actual.
+3. Lo que el bot diría no tiene aporte o solo desestima opiniones ajenas.
+4. El mensaje es ruido o no requiere interacción.
+
+CRITERIOS PARA SÍ RESPONDER:
+1. Hay una pregunta clara o se solicita información relevante.
+2. El bot tiene algo sustancial que aportar (sobre la biblioteca, desarrollo, etc.).
+3. Se requiere asistencia técnica o una aclaración importante.
+
+Responde ÚNICAMENTE con "[RESPOND]" si tiene valor o "[SILENCE]" si no lo tiene. No des explicaciones.`;
+
+        const messages: Message[] = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `MENSAJE A EVALUAR:\n"""${text}"""` }
+        ];
+
+        // Usamos modo 'lite' para rapidez y bajo consumo
+        const { callLLM } = await import('./llm.js');
+        const llmRes = await callLLM(messages, [], userModel, personality, features, 100, 'lite');
+        
+        const content = typeof llmRes.message.content === 'string' 
+            ? llmRes.message.content 
+            : JSON.stringify(llmRes.message.content);
+
+        const hasValue = content.includes('[RESPOND]');
+        console.log(`[Agent:Value] Evaluación de valor: ${hasValue ? '✅ VALIOSO' : '❌ TRIVIAL/SIN VALOR'}`);
+        return hasValue;
+    } catch (e) {
+        console.error(`[Value Assessment Error]`, e);
+        return true; // En caso de error, pecamos de precavidos y permitimos responder
+    }
+};
+
+/**
  * Procesa una solicitud de edición de un mensaje previo del bot.
+
  */
 export const processEditRequest = async (
     chatId: string,

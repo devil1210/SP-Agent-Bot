@@ -61,10 +61,8 @@ async function notifyAdmin(ctx: Context, text: string) {
     // Si estamos en un grupo, enviamos al privado
     await ctx.api.sendMessage(userId, text, { parse_mode: 'HTML' });
     
-    // Intentar borrar el comando del usuario en el grupo para mantenerlo limpio
-    try {
-      await ctx.deleteMessage();
-    } catch (e) {}
+    // ELIMINADO: Ya no borramos el mensaje del comando automáticamente.
+    // Solo se borra por comando explícito /del como solicitó el usuario.
   } catch (e) {
     console.error(`[Bot] No se pudo enviar notificación privada a ${userId}:`, e);
     // Fallback: responder en el grupo solo si falla la comunicación privada
@@ -275,10 +273,7 @@ bot.command('edit', adminOnly, async (ctx) => {
 
         await notifyAdmin(ctx, `✅ Mensaje editado correctamente.`);
         
-        // Limpiar el comando del grupo
-        if (ctx.chat.type !== 'private') {
-            try { await ctx.deleteMessage(); } catch (e) {}
-        }
+        // ELIMINADO: El auto-borrado del comando /edit ha sido desactivado por petición.
     } catch (e: any) {
         console.error(`[Edit Command Error]`, e);
         await notifyAdmin(ctx, `❌ Error al editar: ${e.message}`);
@@ -752,7 +747,16 @@ const handleIncomingMessage = async (ctx: Context) => {
       console.log(`[Bot] Decision (Chat: ${chatId}): Action=RESPOND (Mention=${isMentioned}, Msg=${text.substring(0, 15)}...)`);
   }
 
-  console.log(`[Bot] 🎯 Respondiendo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Activo: ${isGroup ? (isActiveThread ? 'Sí' : 'No') : 'Privado'})`);
+  // --- 4ª VERIFICACIÓN: ANÁLISIS DE VALOR (LLM Assessment) ---
+  const { assessMessageValue } = await import('../agent/loop.js');
+  const hasValue = await assessMessageValue(chatId, text, threadId);
+
+  console.log(`[Bot] 🎯 Respondiendo (Mención: ${isMentioned}, Reply: ${isReplyToBot}, Hilo Activo: ${isGroup ? (isActiveThread ? 'Sí' : 'No') : 'Privado'}, Valor: ${hasValue})`);
+
+  if (!hasValue) {
+      console.log("[Bot] 🤐 Silencio por falta de valor en el aporte.");
+      return;
+  }
 
     // 4. Responder
     console.log(`[Bot] 🧠 Iniciando procesamiento para el chat: ${chatId}`);
