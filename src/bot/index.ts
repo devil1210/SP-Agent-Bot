@@ -9,6 +9,7 @@ export const bot = new Bot(config.telegramBotToken);
 // Configurar comandos visibles solo para administradores
 async function setBotCommands() {
     const commands = [
+        { command: "help", description: "Muestra la guía de todos los comandos (Admin)" },
         { command: "features", description: "Gestiona módulos de conocimiento" },
         { command: "persona", description: "Configurar personalidad libre" },
         { command: "setpersona", description: "Cambiar a una personalidad guardada" },
@@ -21,8 +22,7 @@ async function setBotCommands() {
         { command: "allowuser", description: "Autorizar usuario (ID/Respuesta)" },
         { command: "revokeuser", description: "Revocar usuario (ID)" },
         { command: "users", description: "Lista de usuarios autorizados" },
-        { command: "autofix", description: "Activa/Desactiva auto-corrección de Twitter" },
-        { command: "manual", description: "Guía completa de comandos" }
+        { command: "autofix", description: "Activa/Desactiva auto-corrección de Twitter" }
     ];
 
     try {
@@ -112,6 +112,44 @@ bot.use(async (ctx, next) => {
 });
 
 // Comandos básicos
+bot.command('help', adminOnly, async (ctx) => {
+  const helpMsg = `<b>🛠️ Guía de Comandos del SP-Agent</b>
+
+<b>Básicos:</b>
+• /start - Saludo inicial
+• /help - Muestra esta lista de ayuda (Solo Admin)
+• /id - Ver ID de chat e hilo (Solo Admin / Privado)
+• /clear - Borra la memoria del chat o hilo actual (Solo Admin)
+
+<b>Configuración de IA:</b>
+• /model [nombre] - Cambia el modelo de IA (ej: gemini-1.5-pro)
+• /intr [0-100] - Ajusta la frecuencia de intervención (%)
+• /persona [instrucciones] - Configura una personalidad libre
+• /setpersona [nombre] - Carga una personalidad guardada
+• /personas - Lista y gestiona personalidades guardadas
+• /savepersona [nombre] [prompt] - Guarda una personalidad
+
+<b>Gestión de Grupos y Usuarios:</b>
+• /groups - Lista los grupos e hilos donde estoy activo
+• /topics [rol] - Configura mi rol (miembro/consultor/asistente)
+• /allowgroup - Autoriza un nuevo grupo
+• /revokegroup - Revoca autorización de un grupo
+• /allowuser - Autoriza a un usuario
+• /revokeuser - Revoca a un usuario
+• /users - Lista usuarios autorizados
+
+<b>Utilidades:</b>
+• /say [chatId] [msj] - Envía un mensaje remoto
+• /del - Borra un mensaje mío (citándolo)
+• /edit [instrucciones] - Edita un mensaje mío con IA (citándolo)
+• /autofix [si/no] - Activa/Desactiva auto-corrección de Twitter
+• /features - Gestiona módulos de conocimiento (ej: library)
+
+<i>Nota: Todos los comandos de configuración se envían a tu chat privado por seguridad.</i>`;
+
+  await notifyAdmin(ctx, helpMsg);
+});
+
 bot.command('start', async (ctx) => {
     await ctx.reply("¡Hola! Soy SP-Agent avanzado. Ahora tengo visión, búsqueda en internet y memoria total.", { parse_mode: 'HTML' });
 });
