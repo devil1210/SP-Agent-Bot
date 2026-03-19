@@ -592,7 +592,7 @@ const handleIncomingMessage = async (ctx: Context) => {
   
   // Verificación asíncrona de Admin
   const isSAdmin = await isAdmin(userId);
-  const senderRole = isSAdmin ? "[ADMIN]" : "[USER]";
+  const senderRole = isSAdmin ? "[SUPERVISOR]" : "[USER]";
   const senderName = `${ctx.from?.first_name || "Usuario"} (ID: ${userId}) ${senderRole}`;
   
   // Capturar texto del mensaje citado para dar contexto (Importante para hilos pasivos)
@@ -600,7 +600,7 @@ const handleIncomingMessage = async (ctx: Context) => {
   if (ctx.message?.reply_to_message) {
       const qUserId = ctx.message.reply_to_message.from?.id.toString();
       const qIsAdmin = await isAdmin(qUserId);
-      const qRole = qIsAdmin ? "[ADMIN]" : "[USER]";
+      const qRole = qIsAdmin ? "[SUPERVISOR]" : "[USER]";
       const quoteSender = `${ctx.message.reply_to_message.from?.first_name || "Alguien"} ${qRole}`;
       const quoteText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || "";
       if (quoteText) {
