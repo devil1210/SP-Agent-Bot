@@ -254,52 +254,87 @@ bot.command('intr', adminOnly, async (ctx) => {
 
 bot.command('config', adminOnly, async (ctx) => {
   const input = ctx.match.trim();
-  const threadId = ctx.message?.message_thread_id?.toString();
-  const chatId = ctx.chat.id.toString();
+  const parts = input.split(/\s+/);
+  
+  let targetChatId = ctx.chat.id.toString();
+  let targetThreadId: string | undefined = ctx.message?.message_thread_id?.toString();
+  let startIndex = 0;
 
-  if (!input) {
-    const params = await getPersonalityParams(chatId, threadId);
-    let msg = "⚙️ <b>Configuración de Personalidad Actual:</b>\n\n";
+  // 1. Detectar si el primer parte es un chatId (-100...)
+  if (parts[0] && parts[0].startsWith('-')) {
+    targetChatId = parts[0];
+    startIndex = 1;
+
+    // 2. ¿El siguiente es un threadId (número)?
+    if (parts[1] && /^\d+$/.test(parts[1])) {
+      targetThreadId = parts[1];
+      startIndex = 2;
+    }
+  }
+
+  const remainingInput = parts.slice(startIndex).join(' ');
+
+  // Caso A: Solo ver configuración actual
+  if (!remainingInput) {
+    const params = await getPersonalityParams(targetChatId, targetThreadId);
+    let msg = `⚙️ <b>Configuración [ID: ${targetChatId}${targetThreadId ? ' Thread: ' + targetThreadId : ''}]:</b>\n\n`;
     const entries = Object.entries(params);
     if (entries.length === 0) {
-      msg += "<i>No hay parámetros personalizados. Usando valores estándar (50/100).</i>";
+      msg += "<i>Usando valores estándar (50/100).</i>";
     } else {
       entries.forEach(([k, v]) => {
         msg += `• <b>${k}</b>: <code>${v}/100</code>\n`;
       });
     }
-    msg += "\n\n<b>Rasgos disponibles:</b>\nsarcasmo, interés, trivialidad, intervención, emoción, frialdad, agresividad, empatía, creatividad.\n\n<b>Uso:</b> <code>/config [rasgo] [0-100]</code>";
+    msg += "\n\n<b>Uso:</b>\n<code>/config [id_grupo] [id_hilo] rasgo=valor ...</code>\n<code>/config sarcasmo=80 emocion=50</code>";
     return await notifyAdmin(ctx, msg);
   }
 
-  const parts = input.split(/\s+/);
-  if (parts.length < 2) {
-    return await notifyAdmin(ctx, "❌ Uso: <code>/config [rasgo] [valor 0-100]</code>");
-  }
-
-  const trait = parts[0].toLowerCase();
-  const value = parseInt(parts[1]);
+  // Caso B: Procesar múltiples parámetros (formato clave=valor o clave valor)
+  // Normalizamos el input para que 'clave valor' sea 'clave=valor' para simplificar el split
+  const normalizedInput = remainingInput
+    .replace(/([a-záéíóúñ]+)\s*[:=]\s*(\d+)/gi, '$1=$2') // normaliza ':' o '='
+    .split(/\s+/);
 
   const validTraits = ['sarcasmo', 'interes', 'interés', 'trivialidad', 'intervencion', 'intervención', 'emocion', 'emoción', 'frialdad', 'agresividad', 'empatia', 'empatía', 'creatividad'];
-  if (!validTraits.includes(trait)) {
-    return await notifyAdmin(ctx, `❌ Rasgo no reconocido. Disponibles: ${validTraits.join(', ')}`);
+  const traitMap: Record<string, string> = { 'interés': 'interes', 'intervención': 'intervencion', 'emoción': 'emocion', 'empatía': 'empatia' };
+  
+  let updatedCount = 0;
+  let summary = `✅ <b>Actualización de Configuración:</b>\n`;
+
+  for (const item of normalizedInput) {
+    if (item.includes('=')) {
+      const [trait, valStr] = item.split('=');
+      const lowerTrait = trait.toLowerCase();
+      const value = parseInt(valStr);
+
+      if (validTraits.includes(lowerTrait) && !isNaN(value) && value >= 0 && value <= 100) {
+        const finalTrait = traitMap[lowerTrait] || lowerTrait;
+        await setPersonalityParam(targetChatId, finalTrait, value, targetThreadId);
+        summary += `• ${finalTrait}: <code>${value}/100</code>\n`;
+        updatedCount++;
+      }
+    }
+    // Soporte para formato "/config sarcasmo 80" si es el único parámetro
+    else if (normalizedInput.length === 2 && !isNaN(parseInt(normalizedInput[1]))) {
+        const lowerTrait = normalizedInput[0].toLowerCase();
+        const value = parseInt(normalizedInput[1]);
+        if (validTraits.includes(lowerTrait) && value >= 0 && value <= 100) {
+            const finalTrait = traitMap[lowerTrait] || lowerTrait;
+            await setPersonalityParam(targetChatId, finalTrait, value, targetThreadId);
+            summary += `• ${finalTrait}: <code>${value}/100</code>\n`;
+            updatedCount = 1;
+            break; 
+        }
+    }
   }
 
-  if (isNaN(value) || value < 0 || value > 100) {
-    return await notifyAdmin(ctx, "❌ El valor debe ser un número entre 0 y 100.");
+  if (updatedCount === 0) {
+    return await notifyAdmin(ctx, "❌ No se procesó ningún parámetro válido.\nEjemplo: <code>/config sarcasmo=80 emoción=70</code>");
   }
 
-  // Normalizar nombres con tildes para la DB
-  const traitMap: Record<string, string> = {
-    'interés': 'interes',
-    'intervención': 'intervencion',
-    'emoción': 'emocion',
-    'empatía': 'empatia'
-  };
-  const finalTrait = traitMap[trait] || trait;
-
-  await setPersonalityParam(chatId, finalTrait, value, threadId);
-  await notifyAdmin(ctx, `✅ Rasgo <b>${finalTrait}</b> actualizado a <code>${value}/100</code>.`);
+  summary += `\nAplicado a: <code>${targetChatId}</code>${targetThreadId ? ' (Hilo #' + targetThreadId + ')' : ''}`;
+  await notifyAdmin(ctx, summary);
 });
 
 bot.command('del', adminOnly, async (ctx) => {
