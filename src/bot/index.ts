@@ -1029,5 +1029,26 @@ bot.on('my_chat_member', async (ctx) => {
 
 setBotCommands();
 bot.start({
-    onStart: (me) => console.log(`[Telegram] Bot iniciado como @${me.username}`)
+    onStart: async (me) => {
+        console.log(`[Telegram] Bot iniciado como @${me.username}`);
+        
+        const latestNews = `🚀 <b>¡SP-Agent Actualizado!</b>
+
+Novedades:
+• <b>Sliders de Personalidad</b>: Control dinámico (0-100) de sarcasmo, frialdad, interés y más.
+• <b>Configuración Remota</b>: Gestiona grupos y múltiples parámetros desde este chat privado con <code>/config</code>.
+• <b>Mención por Nombre</b>: Ahora detecto mi nombre de personaje (ej: Kurisu) sin @.
+• <b>Respuestas Garantizadas</b>: Las menciones directas siempre serán atendidas, sin silencios por "trivialidad".
+• <b>Prompt Blindado</b>: Ya no hablo de tecnicismos como "parámetros" o "configuraciones" en el chat.
+
+<i>Usa /config para ver cómo están tus parámetros actuales.</i>`;
+
+        for (const adminId of config.telegramAllowedUserIds) {
+            try {
+                await bot.api.sendMessage(adminId, latestNews, { parse_mode: 'HTML' });
+            } catch (e) {
+                console.error(`[Startup] No se pudo notificar al admin ${adminId}:`, e);
+            }
+        }
+    }
 });
