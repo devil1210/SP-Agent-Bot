@@ -535,18 +535,60 @@ bot.command('setpersona', adminOnly, async (ctx) => {
   await notifyAdmin(ctx, `✅ Personalidad cambiada a: <b>${persona.name}</b> en este hilo.`);
 });
 
+bot.command('purgegroup', adminOnly, async (ctx) => {
+  const chatId = ctx.match.trim();
+  if (!chatId) return await notifyAdmin(ctx, "💡 <b>Uso:</b> <code>/purgegroup [chatId]</code>");
+  
+  const { revokeGroup } = await import('../db/settings.js');
+  await revokeGroup(chatId);
+  
+  // Borrar de bot_settings
+  const { db } = await import('../db/index.js');
+  await db.from('bot_settings').delete().eq('chat_id', chatId);
+  
+  await notifyAdmin(ctx, `✅ Grupo <code>${chatId}</code> y su configuración purgados.`);
+});
+
+bot.command('purgethread', adminOnly, async (ctx) => {
+  const input = ctx.match.trim();
+  const parts = input.split(/\s+/);
+  if (parts.length < 2) return await notifyAdmin(ctx, "💡 <b>Uso:</b> <code>/purgethread [chatId] [threadId]</code>");
+  
+  const chatId = parts[0];
+  const threadId = parts[1];
+  
+  const { db } = await import('../db/index.js');
+  await db.from('bot_settings')
+    .delete()
+    .eq('chat_id', chatId)
+    .eq('thread_id', threadId);
+    
+  await notifyAdmin(ctx, `✅ Hilo <code>${threadId}</code> del grupo <code>${chatId}</code> purgado.`);
+});
+
 bot.command('groups', adminOnly, async (ctx) => {
     const authorized = await getAuthorizedGroups();
     if (authorized.length === 0) return await notifyAdmin(ctx, "No hay grupos autorizados.");
     
     let msg = "<b>🏰 Tus Dominios (Grupos e Hilos):</b>\n\n";
     for (const group of authorized) {
-        msg += `📁 <b>Grupo:</b> ${group.name} <code>${group.id}</code>\n`;
+        // Intentar actualizar nombre si es genérico
+        let displayName = group.name;
+        if (group.name === 'Grupo' || group.name === 'Grupo Desconocido') {
+            try {
+                const chat = await bot.api.getChat(group.id);
+                displayName = (chat as any).title || (chat as any).first_name || group.name;
+                if (displayName !== group.name) await authorizeGroup(group.id, displayName);
+            } catch (e) {
+                console.warn(`[Groups] No se pudo actualizar nombre para ${group.id}`);
+            }
+        }
+
+        msg += `📁 <b>Grupo:</b> ${displayName} <code>${group.id}</code>\n`;
         const knownThreads = await getKnownThreads(group.id);
         const activeThreads = await getAllowedThreads(group.id);
         const passiveThreads = await getPassiveThreads(group.id);
 
-        // Consolidar IDs únicos de todas las fuentes
         const allThreadIds = [...new Set([
             ...knownThreads.map(t => t.id),
             ...activeThreads,
@@ -564,7 +606,7 @@ bot.command('groups', adminOnly, async (ctx) => {
         }
         msg += "\n";
     }
-    msg += "<i>Leyenda: 🎭 Miembro | 🧐 Consultor | 🤖 Asistente</i>";
+    msg += "<i>Leyenda: 🎭 Miembro | 🧐 Consultor | 🤖 Asistente\n\nComandos: /purgegroup [id] | /purgethread [id] [thread]</i>";
     await notifyAdmin(ctx, msg);
 });
 
