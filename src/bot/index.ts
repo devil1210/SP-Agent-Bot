@@ -405,37 +405,21 @@ bot.command('edit', adminOnly, async (ctx) => {
     }
 });
 
-bot.command('set_state', adminOnly, async (ctx) => {
-  const input = ctx.match.trim();
-  const parts = input.split(/\s+/);
+bot.command('set_img_search', adminOnly, async (ctx) => {
+  const input = ctx.match.trim().toLowerCase();
+  if (input !== 'true' && input !== 'false') {
+    return await notifyAdmin(ctx, "💡 <b>Uso:</b> <code>/set_img_search [true/false]</code>");
+  }
+
+  const chatId = ctx.chat.id.toString();
+  const threadId = ctx.message?.message_thread_id?.toString();
+  const enabled = input === 'true';
+
+  const { setPersonalityParam } = await import('../db/settings.js');
+  // Usamos un valor numérico para guardar el booleano (1/0)
+  await setPersonalityParam(chatId, 'can_search_images', enabled ? 1 : 0, threadId);
   
-  if (parts.length < 2) {
-    return await notifyAdmin(ctx, "💡 <b>Uso:</b> <code>/set_state [chatId] [hilo] humor=X animo=Y reactividad=Z</code>");
-  }
-
-  let targetChatId = parts[0];
-  let startIndex = 1;
-  let threadId: string | undefined;
-
-  // Si el segundo argumento es un hilo (numérico), lo capturamos
-  if (/^\d+$/.test(parts[1])) {
-    threadId = parts[1];
-    startIndex = 2;
-  }
-
-  const { setEmotionalState } = await import('../db/settings.js');
-  const state: Partial<import('../db/settings.js').EmotionalState> = {};
-  
-  for (let i = startIndex; i < parts.length; i++) {
-    const [key, val] = parts[i].split('=');
-    if (['humor', 'animo', 'reactividad'].includes(key)) {
-      const value = parseInt(val);
-      if (!isNaN(value)) state[key as keyof import('../db/settings.js').EmotionalState] = value;
-    }
-  }
-
-  await setEmotionalState(targetChatId, state, threadId);
-  await notifyAdmin(ctx, `✅ Estado emocional actualizado: ${JSON.stringify(state)}`);
+  await notifyAdmin(ctx, `✅ Búsqueda de imágenes ${enabled ? 'ACTIVADA' : 'DESACTIVADA'} para este hilo.`);
 });
 
 bot.command('persona', adminOnly, async (ctx) => {

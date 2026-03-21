@@ -5,7 +5,7 @@ export interface Tool {
   name: string;
   description: string;
   parameters: any;
-  execute: (args: any, context: { chatId: string, userId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => Promise<string>;
+  execute: (args: any, context: { chatId: string, userId: string, threadId?: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => Promise<string>;
 }
 
 export const tools: Record<string, Tool> = {
@@ -196,8 +196,12 @@ export const tools: Record<string, Tool> = {
       },
       required: ['query'],
     },
-    execute: async ({ query }, { isAdmin }) => {
-      if (!isAdmin) return "Error: La búsqueda de imágenes está reservada para el administrador.";
+  execute: async ({ query }, { chatId, threadId, isAdmin }) => {
+      if (!isAdmin) {
+          const { getPersonalityParams } = await import('../db/settings.js');
+          const params = await getPersonalityParams(chatId, threadId);
+          if (!params.can_search_images) return "Error: La búsqueda de imágenes no está habilitada en este hilo.";
+      }
       try {
         const response = await fetch('https://api.tavily.com/search', {
           method: 'POST',
@@ -236,7 +240,7 @@ export const tools: Record<string, Tool> = {
             }
         }
         
-        return "No se encontraron imágenes ACTUALES (2025-2026). Dile al usuario que no hay fotos recientes disponibles aún y no mandes fotos viejas.";
+        return "No se encontraron imágenes ACTUALES (2025-2026).";
       } catch (err: any) { return `Error en búsqueda de imágenes: ${err.message}`; }
     }
   },
@@ -576,7 +580,7 @@ export const getToolsDefinition = () => {
   }));
 };
 
-export const executeTool = async (name: string, args: any, context: { chatId: string, userId: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => {
+export const executeTool = async (name: string, args: any, context: { chatId: string, userId: string, threadId?: string, quotedMsgId?: number, qIsAssistant?: boolean, isAdmin: boolean }) => {
   const tool = tools[name];
   if (!tool) throw new Error(`Tool ${name} not found`);
   

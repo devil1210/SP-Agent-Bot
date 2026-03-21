@@ -136,15 +136,17 @@ export const processUserMessage = async (
                     ? toolCall.function.arguments 
                     : JSON.stringify(toolCall.function.arguments);
 
-                  console.log(`[Agent:Tool] 🛠️ Ejecutando: ${toolCall.function.name}(${args})`);
-                  const result = await executeTool(toolCall.function.name, toolCall.function.arguments, { 
-                      chatId, 
-                      userId,
-                      quotedMsgId, 
-                      qIsAssistant,
-                      isAdmin
-                  });
-                  console.log(`[Agent:Tool] ✅ Resultado obtenido (${result.length} caracteres)`);
+                   console.log(`[Agent:Tool] 🛠️ Ejecutando: ${toolCall.function.name}(${args})`);
+                   const result = await executeTool(toolCall.function.name, toolCall.function.arguments, { 
+                       chatId, 
+                       userId,
+                       threadId,
+                       quotedMsgId, 
+                       qIsAssistant,
+                       isAdmin
+                   });
+                   console.log(`[Agent:Tool] ✅ Resultado obtenido (${result.length} caracteres)`);
+
                   
                   // Ya no capturamos aquí, lo haremos del mensaje final del asistente
 
