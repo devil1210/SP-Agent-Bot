@@ -95,7 +95,7 @@ async function updateBotTag(ctx: Context, chatId: string, threadId?: string) {
         console.log(`[Bot] ✅ Etiqueta actualizada a: ${title}`);
     } catch (e: any) {
         // Fallará silenciosamente si no es admin, no bloqueamos el flujo
-        console.warn(`[Bot] ⚠️ No se pudo actualizar etiqueta (quizás no soy Admin): ${e.message}`);
+        console.error(`[Bot] ⚠️ ERROR AL ACTUALIZAR ETIQUETA. ¿Soy admin? ¿Tengo permiso? Error: ${e.message}`);
     }
 }
 
