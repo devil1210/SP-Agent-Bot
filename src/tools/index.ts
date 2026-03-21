@@ -169,8 +169,7 @@ export const tools: Record<string, Tool> = {
       },
       required: ['query'],
     },
-    execute: async ({ query }, { isAdmin }) => {
-      if (!isAdmin) return "Error: Las búsquedas en internet están reservadas para el administrador.";
+    execute: async ({ query }, _context) => {
       try {
         const response = await fetch('https://api.tavily.com/search', {
           method: 'POST',
@@ -276,8 +275,7 @@ export const tools: Record<string, Tool> = {
       },
       required: ['contexto'],
     },
-    execute: async ({ contexto }, { isAdmin }) => {
-      if (!isAdmin) return "Error: El radar de tendencias está reservado para el administrador.";
+    execute: async ({ contexto }, _context) => {
       try {
         const query = `últimas noticias tendencias hoy ${contexto} breaking news top stories`;
         const response = await fetch('https://api.tavily.com/search', {
@@ -301,6 +299,7 @@ export const tools: Record<string, Tool> = {
         return report;
       } catch (err: any) { return `Error en el radar: ${err.message}`; }
     }
+
   },
   enviar_mensaje_grupo: {
     name: 'enviar_mensaje_grupo',
