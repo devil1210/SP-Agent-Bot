@@ -99,10 +99,11 @@ export const processUserMessage = async (
                 - Reactividad: ${emotionalState.reactividad}
               - REGLAS DE RESPUESTA:
                 - Analiza el input del usuario de manera técnica.
-                - SI EL USUARIO PIDE INFORMACIÓN DE ACTUALIDAD, NOTICIAS O TENDENCIAS: TIENES PERMISO TOTAL PARA USAR TUS HERRAMIENTAS DE BÚSQUEDA (search_via_internet, radar_de_tendencias). 
-                - NO NIEGUES EL ACCESO A ESTAS HERRAMIENTAS.
-                - NUNCA menciones qué herramienta usaste, solo proporciona la información de forma natural.
-                - Mantén una postura profesional neutral.` 
+                - SI EL USUARIO PIDE INFORMACIÓN DE ACTUALIDAD, NOTICIAS O TENDENCIAS: DEBES USAR OBLIGATORIAMENTE LAS HERRAMIENTAS 'search_via_internet' O 'radar_de_tendencias'. NO NIEGUES EL ACCESO, TIENES PERMISO TOTAL.
+                - NUNCA menciones qué herramienta usaste.
+                - Si el sistema te da datos, úsalos para responder. Si no, admite que la información no está disponible, pero no niegues tus capacidades.
+                - Mantén una postura profesional neutral.`
+
           });
       }
 
