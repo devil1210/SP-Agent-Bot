@@ -405,7 +405,38 @@ bot.command('edit', adminOnly, async (ctx) => {
     }
 });
 
-bot.command('persona', adminOnly, async (ctx) => {
+bot.command('set_state', adminOnly, async (ctx) => {
+  const input = ctx.match.trim();
+  const parts = input.split(/\s+/);
+  
+  if (parts.length < 2) {
+    return await notifyAdmin(ctx, "💡 <b>Uso:</b> <code>/set_state [chatId] [hilo] humor=X animo=Y reactividad=Z</code>");
+  }
+
+  let targetChatId = parts[0];
+  let startIndex = 1;
+  let threadId: string | undefined;
+
+  // Si el segundo argumento es un hilo (numérico), lo capturamos
+  if (/^\d+$/.test(parts[1])) {
+    threadId = parts[1];
+    startIndex = 2;
+  }
+
+  const { setEmotionalState } = await import('../db/settings.js');
+  const state: Partial<import('../db/settings.js').EmotionalState> = {};
+  
+  for (let i = startIndex; i < parts.length; i++) {
+    const [key, val] = parts[i].split('=');
+    if (['humor', 'animo', 'reactividad'].includes(key)) {
+      const value = parseInt(val);
+      if (!isNaN(value)) state[key as keyof import('../db/settings.js').EmotionalState] = value;
+    }
+  }
+
+  await setEmotionalState(targetChatId, state, threadId);
+  await notifyAdmin(ctx, `✅ Estado emocional actualizado: ${JSON.stringify(state)}`);
+});
   const input = ctx.match.trim();
   const parts = input.split(/\s+/);
   let targetChatId = ctx.chat.id.toString();

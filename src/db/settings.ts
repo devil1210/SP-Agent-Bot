@@ -373,3 +373,33 @@ export const setPersonalityParam = async (chatId: string, param: string, value: 
   const safeValue = Math.min(100, Math.max(0, value));
   await addMemory(chatId, 'assistant', `PersonalityParam [${param.toLowerCase()}]: ${safeValue}`, threadId);
 };
+
+/**
+ * Gestión de Estado Emocional (0-100)
+ */
+export interface EmotionalState {
+    humor: number;
+    animo: number;
+    reactividad: number;
+}
+
+export const getEmotionalState = async (chatId: string, threadId?: string): Promise<EmotionalState> => {
+    try {
+        const params = await getPersonalityParams(chatId, threadId);
+        return {
+            humor: params.humor ?? 50,
+            animo: params.animo ?? 50,
+            reactividad: params.reactividad ?? 50
+        };
+    } catch (e) {
+        return { humor: 50, animo: 50, reactividad: 50 };
+    }
+};
+
+export const setEmotionalState = async (chatId: string, state: Partial<EmotionalState>, threadId?: string): Promise<void> => {
+    for (const [key, value] of Object.entries(state)) {
+        if (value !== undefined) {
+            await setPersonalityParam(chatId, key, value, threadId);
+        }
+    }
+};

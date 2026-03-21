@@ -523,6 +523,46 @@ export const tools: Record<string, Tool> = {
             return `Error: ${e.message}`;
         }
     }
+  },
+  set_state: {
+    name: 'set_state',
+    description: 'Establece el estado emocional (humor, animo, reactividad) para un hilo específico. Solo para ADMINISTRADORES.',
+    parameters: {
+      type: 'object',
+      properties: {
+        chatId: { type: 'string', description: 'ID del chat' },
+        threadId: { type: 'string', description: 'ID del hilo' },
+        humor: { type: 'number', description: 'Humor (0-100)' },
+        animo: { type: 'number', description: 'Animo (0-100)' },
+        reactividad: { type: 'number', description: 'Reactividad (0-100)' }
+      },
+      required: ['chatId']
+    },
+    execute: async ({ chatId, threadId, humor, animo, reactividad }, { isAdmin }) => {
+      if (!isAdmin) return "Error: No autorizado.";
+      const { setEmotionalState } = await import('../db/settings.js');
+      await setEmotionalState(chatId, { humor, animo, reactividad }, threadId);
+      return `✅ Estado emocional actualizado en ${chatId} (${threadId || 'Global'}).`;
+    }
+  },
+  set_personality: {
+    name: 'set_personality',
+    description: 'Establece la personalidad base para un hilo específico. Solo para ADMINISTRADORES.',
+    parameters: {
+      type: 'object',
+      properties: {
+        chatId: { type: 'string', description: 'ID del chat' },
+        threadId: { type: 'string', description: 'ID del hilo' },
+        persona: { type: 'string', description: 'Instrucciones de personalidad' }
+      },
+      required: ['chatId', 'persona']
+    },
+    execute: async ({ chatId, threadId, persona }, { isAdmin }) => {
+      if (!isAdmin) return "Error: No autorizado.";
+      const { setPersonality } = await import('../db/settings.js');
+      await setPersonality(chatId, persona, threadId);
+      return `✅ Personalidad actualizada en ${chatId} (${threadId || 'Global'}).`;
+    }
   }
 };
 
