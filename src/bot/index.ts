@@ -74,6 +74,31 @@ async function notifyAdmin(ctx: Context, text: string) {
   }
 }
 
+// Función auxiliar para intentar cambiar el título del bot
+async function updateBotTag(ctx: Context, chatId: string, threadId?: string) {
+    try {
+        const { getPersonality } = await import('../db/settings.js');
+        const personality = await getPersonality(chatId, threadId);
+        
+        // Extraer nombre de la personalidad (ej: "Eres Tanya" -> "Tanya")
+        let title = "SP-Agent";
+        if (personality) {
+            const nameMatch = personality.match(/(?:eres|soy|llamas|como|personaje|asumes el rol de)\s+([A-Z][A-Za-zÁÉÍÓÚñáéíóú\s]+?)(?:[\.!,;]|\n|$)/i);
+            if (nameMatch) title = nameMatch[1].trim();
+        }
+
+        // Obtener el ID del bot
+        const me = await ctx.api.getMe();
+        
+        // Intentar cambiar la etiqueta (solo funciona si el bot es Admin)
+        await ctx.api.setChatAdministratorCustomTitle(chatId, me.id, title);
+        console.log(`[Bot] ✅ Etiqueta actualizada a: ${title}`);
+    } catch (e: any) {
+        // Fallará silenciosamente si no es admin, no bloqueamos el flujo
+        console.warn(`[Bot] ⚠️ No se pudo actualizar etiqueta (quizás no soy Admin): ${e.message}`);
+    }
+}
+
 /**
  * Middleware para asegurar que solo usuarios autorizados puedan cambiar configuraciones
  */
@@ -749,6 +774,11 @@ bot.command('topics', adminOnly, async (ctx) => {
 const handleIncomingMessage = async (ctx: Context) => {
   const chatId = ctx.chat?.id.toString();
   if (!chatId) return;
+
+  // Actualizar etiqueta si estamos en un grupo
+  if (ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup') {
+      await updateBotTag(ctx, chatId, ctx.message?.message_thread_id?.toString());
+  }
 
   console.log(`[Bot] 🕵️ Mensaje recibido en el chat ${chatId}. Tipo: ${ctx.chat?.type}`);
   
