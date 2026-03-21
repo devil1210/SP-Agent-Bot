@@ -437,6 +437,9 @@ bot.command('set_state', adminOnly, async (ctx) => {
   await setEmotionalState(targetChatId, state, threadId);
   await notifyAdmin(ctx, `✅ Estado emocional actualizado: ${JSON.stringify(state)}`);
 });
+
+bot.command('persona', adminOnly, async (ctx) => {
+bot.command('persona', adminOnly, async (ctx) => {
   const input = ctx.match.trim();
   const parts = input.split(/\s+/);
   let targetChatId = ctx.chat.id.toString();
@@ -446,6 +449,7 @@ bot.command('set_state', adminOnly, async (ctx) => {
   // Caso 1: /persona -100... (Solo el ID para ver la personalidad actual)
   if (parts.length === 1 && parts[0].startsWith('-')) {
     targetChatId = parts[0];
+    const { getPersonality } = await import('../db/settings.js');
     const current = await getPersonality(targetChatId, currentThreadId);
     return await notifyAdmin(ctx, `🎭 <b>Personalidad actual [ID: ${targetChatId}]:</b>\n\n<code>${current || "Por defecto"}</code>`);
   }
@@ -457,18 +461,22 @@ bot.command('set_state', adminOnly, async (ctx) => {
   } 
   // Caso 3: /persona (sin nada, ver personalidad del chat actual)
   else if (!input) {
+    const { getPersonality } = await import('../db/settings.js');
     const current = await getPersonality(targetChatId, currentThreadId);
     return await notifyAdmin(ctx, `🎭 <b>Tu personalidad en este hilo:</b>\n\n<code>${current || "Por defecto"}</code>`);
   }
 
   if (instructions.toLowerCase() === 'default') {
+    const { setPersonality } = await import('../db/settings.js');
     await setPersonality(targetChatId, "", currentThreadId);
     return await notifyAdmin(ctx, `✅ Personalidad restablecida en este hilo.`);
   }
 
+  const { setPersonality } = await import('../db/settings.js');
   await setPersonality(targetChatId, instructions, currentThreadId);
   await notifyAdmin(ctx, `✅ Personalidad actualizada para este hilo.`);
 });
+
 
 bot.command('savepersona', adminOnly, async (ctx) => {
   const input = ctx.match.trim();
