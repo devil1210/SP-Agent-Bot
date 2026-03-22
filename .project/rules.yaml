@@ -1,0 +1,16 @@
+# Reglas del proyecto
+version: 1
+
+# Regla principal: límite de 500 líneas
+rules:
+  - name: max_lines
+    description: "El límite máximo de líneas para cualquier archivo es 500"
+    limit: 500
+    enabled: true
+
+# Políticas relacionadas
+policies:
+  - split_large_files: true
+    reason: "Mantener archivos pequeños y manejables"
+  - use_modules: true
+    reason: "Dividir lógica compleja en módulos"

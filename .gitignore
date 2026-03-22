@@ -7,3 +7,4 @@ dist
 auth.json
 authorize_*.ts
 cleanup_db.ts
+.aider*
