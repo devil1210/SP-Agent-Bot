@@ -13,6 +13,7 @@ export const config = {
   postgrestAnonKey: process.env.POSTGREST_ANON_KEY || '',
   tavilyApiKey: process.env.TAVILY_API_KEY || '', // 🌐 Búsqueda en Internet
   projectsRootPath: process.env.PROJECTS_ROOT_PATH || 'projects', // Ruta base para proyectos
+  codingAgentApiKey: process.env.CODING_AGENT_API_KEY || '', // 🔑 API Key para agentes de codificación
 };
 
 // Validar reglas críticas de env
