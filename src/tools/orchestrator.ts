@@ -32,8 +32,17 @@ export const orchestratorTools = {
       const targetDir = path.join(getProjectsPath(), args.folderName);
       if (fs.existsSync(targetDir)) return "Error: La carpeta ya existe.";
       
+      // Parsear URL: detectar si es web URL con rama
+      let cloneCommand = `git clone ${args.repoUrl} "${targetDir}"`;
+      if (args.repoUrl.includes('/tree/')) {
+        const parts = args.repoUrl.split('/tree/');
+        const baseUrl = parts[0] + '.git';
+        const branch = parts[1];
+        cloneCommand = `git clone -b ${branch} ${baseUrl} "${targetDir}"`;
+      }
+      
       try {
-        await execPromise(`git clone ${args.repoUrl} "${targetDir}"`);
+        await execPromise(cloneCommand);
         return `✅ Repositorio clonado en ${targetDir}`;
       } catch (e: any) {
         return `❌ Error al clonar: ${e.message}`;
