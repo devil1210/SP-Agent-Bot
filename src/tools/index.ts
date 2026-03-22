@@ -1,5 +1,7 @@
 import { config } from '../config.js';
 import { db, addLongTermMemory, searchLongTermMemory } from '../db/index.js';
+import { orchestratorTools } from './orchestrator.js';
+import { agentSkills } from './agent_skills.js';
 
 export interface Tool {
   name: string;
@@ -566,7 +568,9 @@ export const tools: Record<string, Tool> = {
       await setPersonality(chatId, persona, threadId);
       return `✅ Personalidad actualizada en ${chatId} (${threadId || 'Global'}).`;
     }
-  }
+  },
+  ...orchestratorTools,
+  ...agentSkills
 };
 
 export const getToolsDefinition = () => {
