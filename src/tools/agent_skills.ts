@@ -1,8 +1,10 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import { config } from '../config.js';
 
 const execPromise = promisify(exec);
+const getProjectsPath = () => path.join(process.cwd(), config.projectsRootPath);
 
 interface ToolContext { 
     chatId: string; 
@@ -42,13 +44,13 @@ export const agentSkills = {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'Instrucción para el agente.' },
-        workdir: { type: 'string', description: 'Directorio relativo en /projects.' }
+        workdir: { type: 'string', description: 'Directorio relativo en la carpeta de proyectos.' }
       },
       required: ['prompt', 'workdir']
     },
     execute: async (args: { prompt: string; workdir: string }, context: ToolContext) => {
       if (!context.isAdmin) return "Error: No autorizado.";
-      const workdir = path.join(process.cwd(), 'projects', args.workdir);
+      const workdir = path.join(getProjectsPath(), args.workdir);
       return `🚀 [CODING-AGENT] Ejecutando: bash pty:true workdir:${workdir} command:"codex exec '${args.prompt}'"`;
     }
   },
@@ -60,13 +62,13 @@ export const agentSkills = {
     parameters: {
       type: 'object',
       properties: {
-        workdir: { type: 'string', description: 'Directorio relativo en /projects.' }
+        workdir: { type: 'string', description: 'Directorio relativo en la carpeta de proyectos.' }
       },
       required: ['workdir']
     },
     execute: async (args: { workdir: string }, context: ToolContext) => {
       if (!context.isAdmin) return "Error: No autorizado.";
-      const workdir = path.join(process.cwd(), 'projects', args.workdir);
+      const workdir = path.join(getProjectsPath(), args.workdir);
       try {
         await execPromise(`cd "${workdir}" && npm run tsc`);
         return "✅ TypeScript check: Sin errores.";

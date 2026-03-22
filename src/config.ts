@@ -12,6 +12,7 @@ export const config = {
   postgrestUrl: process.env.POSTGREST_URL || 'http://localhost:3000',
   postgrestAnonKey: process.env.POSTGREST_ANON_KEY || '',
   tavilyApiKey: process.env.TAVILY_API_KEY || '', // 🌐 Búsqueda en Internet
+  projectsRootPath: process.env.PROJECTS_ROOT_PATH || 'projects', // Ruta base para proyectos
 };
 
 // Validar reglas críticas de env
