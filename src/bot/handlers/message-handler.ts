@@ -169,7 +169,7 @@ async function handleIncomingMessage(ctx: Context) {
 
   // PROCESAR CON IA
   try {
-    await processUserMessage(
+    const response = await processUserMessage(
       chatId,
       userId,
       text,
@@ -181,6 +181,21 @@ async function handleIncomingMessage(ctx: Context) {
       senderName,
       isSAdmin
     );
+
+    if (response.text.trim()) {
+      if (response.photoUrl) {
+        await ctx.replyWithPhoto(response.photoUrl, {
+          caption: response.text,
+          parse_mode: 'HTML',
+          message_thread_id: threadIdInt
+        });
+      } else {
+        await ctx.reply(response.text, {
+          parse_mode: 'HTML',
+          message_thread_id: threadIdInt
+        });
+      }
+    }
   } catch (e: any) {
     console.error(`[Bot] Error procesando mensaje:`, e);
     await ctx.reply(`❌ Error procesando tu mensaje: ${e.message}`, {
