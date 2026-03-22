@@ -109,7 +109,7 @@ export const orchestratorTools = {
       if (!context.isAdmin) return "Error: No autorizado.";
       
       const fullWorkdir = path.join(getProjectsPath(), args.workdir);
-      const command = `${args.agentType} exec --full-auto '${args.prompt}'`;
+      const command = `CODING_AGENT_API_KEY='${config.codingAgentApiKey}' ${args.agentType} exec --full-auto '${args.prompt}'`;
       
       return `🚀 [TÉCNICO] Instrucción lista para el orquestador:\n` +
              `bash pty:true workdir:${fullWorkdir} background:true command:"${command}"`;
