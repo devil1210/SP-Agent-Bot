@@ -100,16 +100,18 @@ export const orchestratorTools = {
       type: 'object',
       properties: {
         agentType: { type: 'string', enum: ['codex', 'claude', 'pi'], description: 'Tipo de agente' },
+        model: { type: 'string', description: 'Modelo a usar (ej: gemini-3.1-flash-lite)' },
         prompt: { type: 'string', description: 'Tarea para el agente' },
         workdir: { type: 'string', description: 'Directorio relativo en la carpeta de proyectos' }
       },
       required: ['agentType', 'prompt', 'workdir']
     },
-    execute: async (args: { agentType: string; prompt: string; workdir: string }, context: ToolContext) => {
+    execute: async (args: { agentType: string; model?: string; prompt: string; workdir: string }, context: ToolContext) => {
       if (!context.isAdmin) return "Error: No autorizado.";
       
       const fullWorkdir = path.join(getProjectsPath(), args.workdir);
-      const command = `CODING_AGENT_API_KEY='${config.codingAgentApiKey}' ${args.agentType} exec --full-auto '${args.prompt}'`;
+      const modelFlag = args.model ? `--model '${args.model}'` : '--model \'gemini-3.1-flash-lite\'';
+      const command = `CODING_AGENT_API_KEY='${config.codingAgentApiKey}' ${args.agentType} exec ${modelFlag} --full-auto '${args.prompt}'`;
       
       return `🚀 [TÉCNICO] Instrucción lista para el orquestador:\n` +
              `bash pty:true workdir:${fullWorkdir} background:true command:"${command}"`;
