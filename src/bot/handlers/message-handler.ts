@@ -19,7 +19,7 @@ export function setupMessageHandler(bot: Bot) {
 async function handleIncomingMessage(ctx: Context) {
   const chatId = ctx.chat?.id.toString();
   if (!chatId) return;
-  await purgeExpiredContext(chatId);
+  // Purga eliminada: No se borran datos de la base de datos.
 
   // Actualizar etiqueta si estamos en un grupo
   if (ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup') {
@@ -151,7 +151,7 @@ async function handleIncomingMessage(ctx: Context) {
     const randomDice = Math.random() * 100;
     const isRandomIntervention = isActiveThread && !isTrivial && (randomDice <= interventionLevel);
     
-    const shouldRespond = isMentioned || isReplyToBot || (isPassiveThread ? substantiveReply : isRandomIntervention);
+    const shouldRespond = isMentioned || isReplyToBot || (isPassiveThread ? (isReplyToBot && !isTrivial) : isRandomIntervention);
     const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
     if (!shouldRespond) {

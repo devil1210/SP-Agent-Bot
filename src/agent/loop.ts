@@ -43,7 +43,8 @@ export const processUserMessage = async (
   
   try {
       const history = await getHistory(chatId, 50, threadId);
-      await addMemory(chatId, 'user', text, threadId, userMsgId, senderName, isAdmin);
+      const filteredHistory = history.filter(m => m.type !== 'alert' || (new Date(m.created_at).getTime() > new Date().getTime() - (4 * 60 * 60 * 1000)));
+      await addMemory(chatId, 'user', text, threadId, userMsgId, senderName, isAdmin, 'general');
 
       const userModel = await getUserModel(chatId, threadId); 
       const personality = await getPersonality(chatId, threadId);
@@ -55,7 +56,7 @@ export const processUserMessage = async (
       console.log(`[Agent] 🧠 Iniciando (Model: ${userModel}, Persona: ${persSummary}, Intervención: ${interventionLevel}%)`);
 
       const messages: Message[] = [
-        ...history.map(m => ({ role: m.role as any, content: m.content })),
+        ...filteredHistory.map(m => ({ role: m.role as any, content: m.content })),
       ];
       
       const roleLabel = isAdmin ? 'SUPERVISOR' : 'USUARIO_EXTERNO';
