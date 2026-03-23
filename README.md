@@ -86,5 +86,8 @@ Para una guía detallada de comandos, consulta el archivo [COMANDOS.md](./COMAND
 ---
 
 ## 📄 Licencia
-
 Este proyecto es privado. Todos los derechos reservados.
+
+## 🗣️ Idioma de Interacción
+Como regla establecida en este proyecto, todas las interacciones, documentación técnica, mensajes de error y respuestas generadas por el agente deben ser exclusivamente en **español**.
+
