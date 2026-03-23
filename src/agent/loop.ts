@@ -43,7 +43,17 @@ export const processUserMessage = async (
   
   try {
       const history = await getHistory(chatId, 50, threadId);
-      const filteredHistory = history.filter(m => m.type !== 'alert' || (new Date(m.created_at).getTime() > new Date().getTime() - (4 * 60 * 60 * 1000)));
+      // FILTRO: Ignorar alertas expiradas para la IA
+      const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+      const now = new Date().getTime();
+      
+      const filteredHistory = history.filter(m => {
+          if (m.type === 'alert') {
+              return (new Date(m.created_at).getTime() > now - FOUR_HOURS_MS);
+          }
+          return true;
+      });
+      
       await addMemory(chatId, 'user', text, threadId, userMsgId, senderName, isAdmin, 'general');
 
       const userModel = await getUserModel(chatId, threadId); 
