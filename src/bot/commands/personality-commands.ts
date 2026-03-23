@@ -88,6 +88,13 @@ export function registerPersonalityCommands(bot: Bot) {
       return await notifyAdmin(ctx, "❌ Especifica el nombre de la personalidad.");
     }
 
+    const threadId = ctx.message?.message_thread_id?.toString();
+
+    if (name.toLowerCase() === 'default') {
+        await setPersonality(ctx.chat.id.toString(), "", threadId);
+        return await notifyAdmin(ctx, `✅ Personalidad restablecida a valor por defecto en este hilo.`);
+    }
+
     const saved = await getSavedPersonalities();
     const persona = saved.find(p => p.name.toLowerCase() === name.toLowerCase());
 
@@ -95,7 +102,6 @@ export function registerPersonalityCommands(bot: Bot) {
       return await notifyAdmin(ctx, `❌ No encontré la personalidad "<b>${name}</b>" en la biblioteca.`);
     }
 
-    const threadId = ctx.message?.message_thread_id?.toString();
     await setPersonality(ctx.chat.id.toString(), persona.content, threadId);
     
     await notifyAdmin(ctx, `✅ Personalidad cambiada a: <b>${persona.name}</b> en este hilo.`);

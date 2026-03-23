@@ -19,7 +19,7 @@ export function setupMessageHandler(bot: Bot) {
 async function handleIncomingMessage(ctx: Context) {
   const chatId = ctx.chat?.id.toString();
   if (!chatId) return;
-  await purgeExpiredContext(chatId, ctx.message?.message_thread_id?.toString());
+  await purgeExpiredContext(chatId);
 
   // Actualizar etiqueta si estamos en un grupo
   if (ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup') {

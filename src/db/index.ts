@@ -43,20 +43,18 @@ export const getHistory = async (chatId: string, limit: number = 20, threadId?: 
   return (data as MemoryEntry[] || []).reverse();
 };
 
-export const purgeExpiredContext = async (chatId: string, threadId?: string): Promise<void> => {
-    const history = await getHistory(chatId, 50, threadId);
-    const now = new Date();
-    const expiredMessages = history.filter(msg => {
-        if (msg.type !== 'alert') return false;
-        const createdAt = new Date(msg.created_at);
-        const diffHours = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
-        return diffHours > EVENT_TTL_HOURS;
-    });
-
-    for (const msg of expiredMessages) {
-        const { error } = await db.from('memory').delete().eq('id', msg.id);
-        if (error) console.error('[DB Error] purgeExpiredContext:', error.message);
-    }
+export const purgeExpiredContext = async (chatId: string): Promise<void> => {
+    const threshold = new Date();
+    threshold.setHours(threshold.getHours() - EVENT_TTL_HOURS);
+    
+    const { error } = await db
+        .from('memory')
+        .delete()
+        .eq('user_id', chatId)
+        .eq('type', 'alert')
+        .lt('created_at', threshold.toISOString());
+        
+    if (error) console.error('[DB Error] purgeExpiredContext:', error.message);
 };
 
 export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number, senderName?: string, isAdmin: boolean = false, type: 'alert' | 'general' = 'general'): Promise<void> => {
