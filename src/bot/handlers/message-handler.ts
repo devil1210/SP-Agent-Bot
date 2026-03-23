@@ -1,5 +1,5 @@
 import { Bot, Context } from 'grammy';
-import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix } from '../../db/index.js';
+import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix, purgeExpiredContext } from '../../db/index.js';
 import { getAllowedThreads, getPassiveThreads, getPersonality, getInterventionLevel } from '../../db/settings.js';
 import { processUserMessage } from '../../agent/loop.js';
 import { isAdmin, updateBotTag, notifyAdmin } from '../helpers.js';
@@ -19,6 +19,7 @@ export function setupMessageHandler(bot: Bot) {
 async function handleIncomingMessage(ctx: Context) {
   const chatId = ctx.chat?.id.toString();
   if (!chatId) return;
+  await purgeExpiredContext(chatId, ctx.message?.message_thread_id?.toString());
 
   // Actualizar etiqueta si estamos en un grupo
   if (ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup') {
@@ -157,7 +158,7 @@ async function handleIncomingMessage(ctx: Context) {
       if (shouldSaveMemory) {
         const contentToSave = isGroup ? `${senderName}: ${text}` : text;
         console.log(`[Bot] 🤐 Guardando en memoria...`);
-        await addMemory(chatId, 'user', contentToSave, threadId, ctx.message?.message_id);
+        await addMemory(chatId, 'user', contentToSave, threadId, ctx.message?.message_id, undefined, false, 'general');
       }
       return;
     }

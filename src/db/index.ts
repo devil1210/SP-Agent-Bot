@@ -13,7 +13,10 @@ export interface MemoryEntry {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   created_at: string;
+  type?: 'alert' | 'general';
 }
+
+const EVENT_TTL_HOURS = 4;
 
 /**
  * MEMORIA DE CORTO PLAZO (Contexto inmediato)
@@ -40,7 +43,23 @@ export const getHistory = async (chatId: string, limit: number = 20, threadId?: 
   return (data as MemoryEntry[] || []).reverse();
 };
 
-export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number, senderName?: string, isAdmin: boolean = false): Promise<void> => {
+export const purgeExpiredContext = async (chatId: string, threadId?: string): Promise<void> => {
+    const history = await getHistory(chatId, 50, threadId);
+    const now = new Date();
+    const expiredMessages = history.filter(msg => {
+        if (msg.type !== 'alert') return false;
+        const createdAt = new Date(msg.created_at);
+        const diffHours = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+        return diffHours > EVENT_TTL_HOURS;
+    });
+
+    for (const msg of expiredMessages) {
+        const { error } = await db.from('memory').delete().eq('id', msg.id);
+        if (error) console.error('[DB Error] purgeExpiredContext:', error.message);
+    }
+};
+
+export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number, senderName?: string, isAdmin: boolean = false, type: 'alert' | 'general' = 'general'): Promise<void> => {
   let finalContent = content;
   if (role === 'user' && senderName) {
     const roleTag = isAdmin ? '[ADMIN]' : '[USER]';
@@ -54,7 +73,8 @@ export const addMemory = async (chatId: string, role: string, content: string, t
       role, 
       content: finalContent, 
       thread_id: threadId || null,
-      msg_id: msgId || null
+      msg_id: msgId || null,
+      type
     }]);
 
   if (error) {

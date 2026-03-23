@@ -20,7 +20,7 @@ export const messageTools = {
         if (!authorized.includes(chatId)) return 'Error: El grupo no está autorizado.';
         const sent = await bot.api.sendMessage(chatId, mensaje, { message_thread_id: threadId, parse_mode: 'HTML' });
         const { addMemory } = await import('../db/index.js');
-        await addMemory(chatId, 'assistant', mensaje, threadId?.toString(), sent.message_id);
+        await addMemory(chatId, 'assistant', mensaje, threadId?.toString(), sent.message_id, undefined, false, 'general');
         return `✅ Mensaje enviado con éxito al grupo ${chatId}.`;
       } catch (e: any) {
         return `❌ Error al enviar mensaje: ${e.message}`;
