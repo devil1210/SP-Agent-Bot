@@ -43,18 +43,7 @@ export const processUserMessage = async (
   
   try {
       const history = await getHistory(chatId, 50, threadId);
-      // FILTRO: Ignorar alertas expiradas para la IA
-      const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
-      const now = new Date().getTime();
-      
-      const filteredHistory = history.filter(m => {
-          if (m.type === 'alert') {
-              return (new Date(m.created_at).getTime() > now - FOUR_HOURS_MS);
-          }
-          return true;
-      });
-      
-      await addMemory(chatId, 'user', text, threadId, userMsgId, senderName, isAdmin, 'general');
+      await addMemory(chatId, 'user', text, threadId, userMsgId, senderName, isAdmin);
 
       const userModel = await getUserModel(chatId, threadId); 
       const personality = await getPersonality(chatId, threadId);
@@ -66,7 +55,7 @@ export const processUserMessage = async (
       console.log(`[Agent] 🧠 Iniciando (Model: ${userModel}, Persona: ${persSummary}, Intervención: ${interventionLevel}%)`);
 
       const messages: Message[] = [
-        ...filteredHistory.map(m => ({ role: m.role as any, content: m.content })),
+        ...history.map(m => ({ role: m.role as any, content: m.content })),
       ];
       
       const roleLabel = isAdmin ? 'SUPERVISOR' : 'USUARIO_EXTERNO';

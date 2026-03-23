@@ -1,5 +1,5 @@
 import { Bot, Context } from 'grammy';
-import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix, purgeExpiredContext } from '../../db/index.js';
+import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix } from '../../db/index.js';
 import { getAllowedThreads, getPassiveThreads, getPersonality, getInterventionLevel } from '../../db/settings.js';
 import { processUserMessage } from '../../agent/loop.js';
 import { isAdmin, updateBotTag, notifyAdmin } from '../helpers.js';
@@ -163,7 +163,7 @@ async function handleIncomingMessage(ctx: Context) {
       if (shouldSaveMemory) {
         const contentToSave = isGroup ? `${senderName}: ${text}` : text;
         console.log(`[Bot] 🤐 Guardando en memoria...`);
-        await addMemory(chatId, 'user', contentToSave, threadId, ctx.message?.message_id, undefined, false, 'general');
+        await addMemory(chatId, 'user', contentToSave, threadId, ctx.message?.message_id, senderName, false);
       }
       return;
     }

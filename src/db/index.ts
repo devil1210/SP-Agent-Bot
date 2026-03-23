@@ -13,10 +13,8 @@ export interface MemoryEntry {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   created_at: string;
-  type?: 'alert' | 'general';
+  // type?: 'alert' | 'general'; // Eliminado para evitar errores de esquema
 }
-
-const EVENT_TTL_HOURS = 4;
 
 /**
  * MEMORIA DE CORTO PLAZO (Contexto inmediato)
@@ -43,21 +41,7 @@ export const getHistory = async (chatId: string, limit: number = 20, threadId?: 
   return (data as MemoryEntry[] || []).reverse();
 };
 
-export const purgeExpiredContext = async (chatId: string): Promise<void> => {
-    const threshold = new Date();
-    threshold.setHours(threshold.getHours() - EVENT_TTL_HOURS);
-    
-    const { error } = await db
-        .from('memory')
-        .delete()
-        .eq('user_id', chatId)
-        .eq('type', 'alert')
-        .lt('created_at', threshold.toISOString());
-        
-    if (error) console.error('[DB Error] purgeExpiredContext:', error.message);
-};
-
-export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number, senderName?: string, isAdmin: boolean = false, type: 'alert' | 'general' = 'general'): Promise<void> => {
+export const addMemory = async (chatId: string, role: string, content: string, threadId?: string, msgId?: number, senderName?: string, isAdmin: boolean = false): Promise<void> => {
   let finalContent = content;
   if (role === 'user' && senderName) {
     const roleTag = isAdmin ? '[ADMIN]' : '[USER]';
@@ -71,8 +55,7 @@ export const addMemory = async (chatId: string, role: string, content: string, t
       role, 
       content: finalContent, 
       thread_id: threadId || null,
-      msg_id: msgId || null,
-      type
+      msg_id: msgId || null
     }]);
 
   if (error) {

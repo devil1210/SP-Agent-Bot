@@ -100,7 +100,15 @@ export const getPersonality = async (chatId: string, threadId?: string): Promise
 };
 
 export const setPersonality = async (chatId: string, persona: string, threadId?: string): Promise<void> => {
-    await saveSetting(chatId, threadId, { personality: persona });
+    if (!persona || persona.trim() === "") {
+        // Borrar configuración para que el bot vuelva al default del prompt de sistema
+        await db.from('bot_settings')
+            .delete()
+            .eq('chat_id', chatId)
+            .eq('thread_id', threadId || 'general');
+    } else {
+        await saveSetting(chatId, threadId, { personality: persona });
+    }
     await addMemory(chatId, 'assistant', `Personalidad definida: ${persona}`, threadId);
 };
 
