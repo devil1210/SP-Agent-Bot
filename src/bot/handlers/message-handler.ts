@@ -155,6 +155,8 @@ async function handleIncomingMessage(ctx: Context) {
     // Trivialidad se ignora en menciones directas (siempre responde), 
     // pero se respeta en replies directos (si no es trivial).
     const shouldRespond = isMentioned || (isReplyToBot && (isPassiveThread ? !isTrivial : true)) || (!isPassiveThread && isRandomIntervention);
+    
+    console.log(`[Bot] 🤖 Decisión de respuesta: Respond=${shouldRespond} (Mentioned=${isMentioned}, ReplyToBot=${isReplyToBot}, Passive=${isPassiveThread}, Trivial=${isTrivial}, Random=${isRandomIntervention})`);
     const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
     if (!shouldRespond) {

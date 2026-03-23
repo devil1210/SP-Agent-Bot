@@ -25,7 +25,7 @@ async function getOrMigrate<T>(
         .eq('thread_id', thread)
         .maybeSingle();
 
-    if (data && (data as any)[column] !== null && (data as any)[column] !== undefined) {
+    if (data) {
         return (data as any)[column] as T;
     }
 
