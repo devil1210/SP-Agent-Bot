@@ -151,7 +151,10 @@ async function handleIncomingMessage(ctx: Context) {
     const randomDice = Math.random() * 100;
     const isRandomIntervention = isActiveThread && !isTrivial && (randomDice <= interventionLevel);
     
-    const shouldRespond = isMentioned || isReplyToBot || (isPassiveThread ? (isReplyToBot && !isTrivial) : isRandomIntervention);
+    // En modo consultor, responde si es mención directa O es reply directo.
+    // Trivialidad se ignora en menciones directas (siempre responde), 
+    // pero se respeta en replies directos (si no es trivial).
+    const shouldRespond = isMentioned || (isReplyToBot && (isPassiveThread ? !isTrivial : true)) || (!isPassiveThread && isRandomIntervention);
     const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
     if (!shouldRespond) {
