@@ -2,6 +2,7 @@ import { callLLM, Message } from './llm.js';
 import { getToolsDefinition, executeTool } from '../tools/index.js';
 import { getHistory, addMemory } from '../db/index.js';
 import { getUserModel, getPersonality, getChatFeatures, getInterventionLevel, getPersonalityParams, getEmotionalState } from '../db/settings.js';
+import { cleanResponse, extractFinalResponse } from '../utils/cleanResponse.js';
 
 /**
  * Escapa caracteres que rompen el HTML de Telegram pero mantiene las etiquetas permitidas
@@ -161,7 +162,11 @@ export const processUserMessage = async (
           } else {
               const content = responseMessage.content;
               let finalContent = typeof content === 'string' ? content : (Array.isArray(content) ? JSON.stringify(content) : '...');
-              
+
+              // ← ← ← ← LIMPIAR la respuesta de la LLM antes de procesarla
+              finalContent = cleanResponse(finalContent);
+              finalContent = extractFinalResponse(finalContent);
+
               // Extraemos el link de la imagen si el asistente lo incluyó por instrucción del sistema
               const imgMatch = finalContent.match(/IMAGE_URL_DETECTED:\s*(https?:\/\/[^\s\n]+)/i);
               if (imgMatch) {

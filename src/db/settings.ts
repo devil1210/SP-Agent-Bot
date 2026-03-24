@@ -106,9 +106,9 @@ export const setPersonality = async (chatId: string, persona: string, threadId?:
             .delete()
             .eq('chat_id', chatId)
             .eq('thread_id', threadId || 'general');
-    } else {
-        await saveSetting(chatId, threadId, { personality: persona });
+        return;  // No añadir memoria cuando se elimina la configuración
     }
+    await saveSetting(chatId, threadId, { personality: persona });
     await addMemory(chatId, 'assistant', `Personalidad definida: ${persona}`, threadId);
 };
 
