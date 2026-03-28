@@ -19,7 +19,6 @@ export function setupMessageHandler(bot: Bot) {
 async function handleIncomingMessage(ctx: Context) {
   const chatId = ctx.chat?.id.toString();
   if (!chatId) return;
-  // Purga eliminada: No se borran datos de la base de datos.
 
   // Actualizar etiqueta si estamos en un grupo
   if (ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup') {
@@ -151,19 +150,14 @@ async function handleIncomingMessage(ctx: Context) {
     const randomDice = Math.random() * 100;
     const isRandomIntervention = isActiveThread && !isTrivial && (randomDice <= interventionLevel);
     
-    // En modo consultor, responde si es mención directa O es reply directo.
-    // Trivialidad se ignora en menciones directas (siempre responde), 
-    // pero se respeta en replies directos (si no es trivial).
-    const shouldRespond = isMentioned || (isReplyToBot && (isPassiveThread ? !isTrivial : true)) || (!isPassiveThread && isRandomIntervention);
-    
-    console.log(`[Bot] 🤖 Decisión de respuesta: Respond=${shouldRespond} (Mentioned=${isMentioned}, ReplyToBot=${isReplyToBot}, Passive=${isPassiveThread}, Trivial=${isTrivial}, Random=${isRandomIntervention})`);
+    const shouldRespond = isMentioned || isReplyToBot || (isPassiveThread ? substantiveReply : isRandomIntervention);
     const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
 
     if (!shouldRespond) {
       if (shouldSaveMemory) {
         const contentToSave = isGroup ? `${senderName}: ${text}` : text;
         console.log(`[Bot] 🤐 Guardando en memoria...`);
-        await addMemory(chatId, 'user', contentToSave, threadId, ctx.message?.message_id, senderName, false);
+        await addMemory(chatId, 'user', contentToSave, threadId, ctx.message?.message_id);
       }
       return;
     }
@@ -175,7 +169,7 @@ async function handleIncomingMessage(ctx: Context) {
 
   // PROCESAR CON IA
   try {
-    const response = await processUserMessage(
+    const result = await processUserMessage(
       chatId,
       userId,
       text,
@@ -188,18 +182,26 @@ async function handleIncomingMessage(ctx: Context) {
       isSAdmin
     );
 
-    if (response.text.trim()) {
-      if (response.photoUrl) {
-        await ctx.replyWithPhoto(response.photoUrl, {
-          caption: response.text,
-          parse_mode: 'HTML',
-          message_thread_id: threadIdInt
-        });
+    if (result && result.text) {
+      if (result.photoUrl) {
+          try {
+              await ctx.replyWithPhoto(result.photoUrl, {
+                  caption: result.text,
+                  parse_mode: 'HTML',
+                  message_thread_id: threadIdInt
+              });
+          } catch (e) {
+              // Fallback si la imagen falla
+              await ctx.reply(result.text, {
+                  parse_mode: 'HTML',
+                  message_thread_id: threadIdInt
+              });
+          }
       } else {
-        await ctx.reply(response.text, {
-          parse_mode: 'HTML',
-          message_thread_id: threadIdInt
-        });
+          await ctx.reply(result.text, {
+              parse_mode: 'HTML',
+              message_thread_id: threadIdInt
+          });
       }
     }
   } catch (e: any) {

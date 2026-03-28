@@ -1,7 +1,10 @@
-import { bot } from './bot/index.js';
+import { bot, initializeBot } from './bot/index.js';
 
 const start = async () => {
   console.log('[System] SP-Agent starting up...');
+  
+  // Initialize bot settings and commands
+  await initializeBot();
   
   // Start the bot with long polling
   bot.start({
