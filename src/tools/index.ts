@@ -6,6 +6,12 @@ import { searchTools } from './search-tools.js';
 import { messageTools } from './message-tools.js';
 import { memoryTools } from './memory-tools.js';
 import { zeepubBridgeTools } from './zeepub-bridge-tool.js';
+import { registry } from './registry.js';
+
+/**
+ * 🛠️ CENTRAL TOOL INDEX — Refactorizado (Mejora #8)
+ * Ahora usa el registry singleton inspirado en SPcore-Nexus para la gestión centralizada.
+ */
 
 export interface ToolResult {
   output: string;
@@ -20,34 +26,34 @@ export interface Tool {
   execute: (args: any, context: any) => Promise<string | ToolResult>;
 }
 
-export const tools: Record<string, Tool> = {
-  ...libraryTools,
-  ...accessTools,
-  ...searchTools,
-  ...messageTools,
-  ...memoryTools,
-  ...orchestratorTools,
-  ...agentSkills,
-  ...zeepubBridgeTools   // Bridge to Zeepub-bot
+// ── REGISTRO DE TODAS LAS HERRAMIENTAS ──────────────────────────────────────
+// Este registro permite al agente cargar herramientas bajo demanda si se apaga una feature.
+
+registry.register(libraryTools);
+registry.register(accessTools);
+registry.register(searchTools);
+registry.register(messageTools);
+registry.register(memoryTools);
+registry.register(orchestratorTools);
+registry.register(agentSkills);
+registry.register(zeepubBridgeTools);
+
+// Re-exportar definiciones para el LLM (ahora a través del registry)
+export const getToolsDefinition = (filter?: (name: string) => boolean) => {
+  return registry.getDefinitions(filter);
 };
 
-export const getToolsDefinition = () => {
-  return Object.values(tools).map(t => ({
-    type: 'function',
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    }
-  }));
-};
+// ── EJECUCIÓN (Anti-Hang y Timeout Guard) ───────────────────────────────────
+// Se mantiene la lógica de timeout aquí para separar la ejecución del registro puro.
 
 const TOOL_TIMEOUT_MS = 15_000;
 
-export const executeTool = async (name: string, args: any, context: { chatId: string; userId: string; threadId?: string; quotedMsgId?: number; qIsAssistant?: boolean; isAdmin: boolean }): Promise<ToolResult> => {
-  const tool = tools[name];
-  if (!tool) return { output: `Tool ${name} not found`, success: false, error: 'NOT_FOUND' };
-
+export const executeTool = async (
+  name: string, 
+  args: any, 
+  context: { chatId: string; userId: string; threadId?: string; quotedMsgId?: number; qIsAssistant?: boolean; isAdmin: boolean }
+): Promise<ToolResult> => {
+  
   let parsedArgs = args;
   if (typeof args === 'string') {
     try {
@@ -60,8 +66,8 @@ export const executeTool = async (name: string, args: any, context: { chatId: st
   const start = Date.now();
   try {
     const rawResult = await Promise.race([
-      tool.execute(parsedArgs, context),
-      new Promise<string>((_, reject) =>
+      registry.execute(name, parsedArgs, context),
+      new Promise<ToolResult>((_, reject) =>
         setTimeout(() => reject(new Error(`Tool '${name}' timeout after ${TOOL_TIMEOUT_MS}ms`)), TOOL_TIMEOUT_MS)
       )
     ]);
@@ -69,11 +75,7 @@ export const executeTool = async (name: string, args: any, context: { chatId: st
     const duration = Date.now() - start;
     console.log(`[Tool:Perf] ⏱️ ${name} completada en ${duration}ms`);
 
-    // Normalizar resultado a ToolResult
-    if (typeof rawResult === 'string') {
-      return { output: rawResult, success: !rawResult.toLowerCase().includes('error:') };
-    }
-    return rawResult as ToolResult;
+    return rawResult;
 
   } catch (e: any) {
     console.error(`[Tool:Error] ❌ ${name} falló tras ${Date.now() - start}ms: ${e.message}`);
@@ -84,3 +86,6 @@ export const executeTool = async (name: string, args: any, context: { chatId: st
     };
   }
 };
+
+// Re-exportar el registry para uso directo si es necesario
+export { registry };

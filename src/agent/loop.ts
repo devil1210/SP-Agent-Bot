@@ -173,7 +173,25 @@ export const processUserMessage = async (
     const permissionCtx = isAdmin
       ? ToolPermissionContext.forAdmin()
       : ToolPermissionContext.forExternalUser();
-    const allToolsDef = getToolsDefinition();
+
+    // Filtro dinámico basado en FEATURES (Mejora #8)
+    const activeFeatures = features || [];
+    const featureToolPrefixes: Record<string, string> = {
+      'library': 'consultar_biblioteca|estadisticas_biblioteca|busqueda_avanzada_biblioteca|listar_entidades_biblioteca|zeepub_',
+      'search': 'search_via_internet|buscar_imagenes|radar_de_tendencias',
+      'dev_prod': 'clone_repository|modify_file|commit_and_push|spawn_coding_agent|gh_pr_list|run_coding_agent|typescript_check',
+      'dev_test': 'clone_repository|modify_file|commit_and_push|spawn_coding_agent|gh_pr_list|run_coding_agent|typescript_check',
+    };
+
+    const allToolsDef = getToolsDefinition((name) => {
+      // Si la herramienta no tiene prefijo en el mapa, es de uso general (access, message, memory)
+      const featureKey = Object.keys(featureToolPrefixes).find(k => 
+        new RegExp(featureToolPrefixes[k]).test(name)
+      );
+      if (!featureKey) return true;
+      return activeFeatures.includes(featureKey);
+    });
+
     const { allowed: allowedTools } = permissionCtx.filterTools(allToolsDef);
 
     // ── Cost Tracker (Nexus UsageSummary) ─────────────────────────────────────

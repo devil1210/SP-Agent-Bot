@@ -1,15 +1,18 @@
-import { tools, executeTool } from '../tools/index.js';
+import { registry, executeTool } from '../tools/index.js';
 
 /**
  * Adaptador MCP para exponer las herramientas existentes del bot
  */
 
 export const listTools = () => {
-    return Object.entries(tools).map(([key, tool]) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.parameters // MCP espera 'inputSchema'
-    }));
+    return registry.getToolNames().map(name => {
+        const tool = registry.getTool(name)!;
+        return {
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.parameters // MCP espera 'inputSchema'
+        };
+    });
 };
 
 export const callTool = async (
@@ -24,7 +27,7 @@ export const callTool = async (
         isAdmin: boolean 
     }
 ) => {
-    if (!tools[name]) {
+    if (!registry.getTool(name)) {
         throw new Error(`Herramienta no encontrada: ${name}`);
     }
     return await executeTool(name, args, context);
