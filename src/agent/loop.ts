@@ -62,9 +62,8 @@ async function executeToolCalls(
   toolCalls: any[],
   executedCalls: Set<string>,
   context: { chatId: string; userId: string; threadId?: string; quotedMsgId?: number; qIsAssistant?: boolean; isAdmin: boolean }
-): Promise<{ toolMessages: Message[]; photoUrl?: string }> {
+): Promise<{ toolMessages: Message[] }> {
   const toolMessages: Message[] = [];
-  let photoUrl: string | undefined;
 
   for (const toolCall of toolCalls) {
     const callId = `${toolCall.function.name}:${toolCall.function.arguments}`;
@@ -77,17 +76,19 @@ async function executeToolCalls(
 
     console.log(`[Agent:Tool] 🛠️ Ejecutando: ${toolCall.function.name}(${args.substring(0, 80)}...)`);
     const result = await executeTool(toolCall.function.name, toolCall.function.arguments, context);
-    console.log(`[Agent:Tool] ✅ Resultado obtenido (${result.length} caracteres)`);
+    
+    const statusIcon = result.success ? '✅' : '❌';
+    console.log(`[Agent:Tool] ${statusIcon} Resultado obtenido (${result.output.length} caracteres)`);
 
     toolMessages.push({
       role: 'tool',
       tool_call_id: toolCall.id,
       name: toolCall.function.name,
-      content: result
+      content: result.output
     });
   }
 
-  return { toolMessages, photoUrl };
+  return { toolMessages };
 }
 
 // ── Bucle principal Agentic ───────────────────────────────────────────────────

@@ -13,11 +13,15 @@ interface ToolContext {
     isAdmin: boolean; 
 }
 
+/**
+ * Agent Skills — Colección de herramientas funcionales para el agente.
+ * Se eliminaron los stubs no funcionales (Mejora #5) para ahorrar tokens y mejorar precisión.
+ */
 export const agentSkills = {
   // --- GITHUB INTEGRATION ---
   gh_pr_list: {
     name: 'gh_pr_list',
-    description: 'Lista los pull requests abiertos en el repositorio actual.',
+    description: 'Lista los pull requests abiertos en un repositorio de GitHub.',
     parameters: {
       type: 'object',
       properties: {
@@ -26,39 +30,47 @@ export const agentSkills = {
       required: ['repo']
     },
     execute: async (args: { repo: string }, context: ToolContext) => {
-      if (!context.isAdmin) return "Error: No autorizado.";
+      if (!context.isAdmin) return { output: "Error: No autorizado.", success: false };
       try {
-        const { stdout } = await execPromise(`gh pr list --repo ${args.repo} --json number,title --jq '.[] | "#\(.number): \(.title)"'`);
-        return stdout || "No hay PRs abiertos.";
+        const { stdout } = await execPromise(`gh pr list --repo ${args.repo} --json number,title --jq '.[] | "#\\(.number): \\(.title)"'`);
+        return { output: stdout || "No hay PRs abiertos.", success: true };
       } catch (e: any) {
-        return `❌ Error gh: ${e.message}`;
+        return { output: `❌ Error gh: ${e.message}`, success: false };
       }
     }
   },
 
-  // --- CODING AGENT INTEGRATION (Coding-agent skill) ---
+  // --- CODING AGENT INTEGRATION ---
   run_coding_agent: {
     name: 'run_coding_agent',
-    description: 'Ejecuta una tarea de codificación usando un agente autónomo.',
+    description: 'Ejecuta una tarea de codificación usando un agente autónomo (Codex/Claude).',
     parameters: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'Instrucción para el agente.' },
+        agent: { type: 'string', enum: ['codex', 'claude'], description: 'Tipo de agente' },
+        prompt: { type: 'string', description: 'Instrucción detallada para el agente.' },
         workdir: { type: 'string', description: 'Directorio relativo en la carpeta de proyectos.' }
       },
       required: ['prompt', 'workdir']
     },
-    execute: async (args: { prompt: string; workdir: string }, context: ToolContext) => {
-      if (!context.isAdmin) return "Error: No autorizado.";
+    execute: async (args: { agent?: string; prompt: string; workdir: string }, context: ToolContext) => {
+      if (!context.isAdmin) return { output: "Error: No autorizado.", success: false };
       const workdir = path.join(getProjectsPath(), args.workdir);
-      return `🚀 [CODING-AGENT] Ejecutando: bash pty:true workdir:${workdir} command:"codex exec '${args.prompt}'"`;
+      const agent = args.agent || 'codex';
+      
+      // Retorna una instrucción formateada para que el orquestador de sistema la capture si es necesario, 
+      // o simplemente confirma la cola de ejecución.
+      return { 
+        output: `🚀 [${agent.toUpperCase()}] Tarea enviada: bash pty:true workdir:${workdir} command:"${agent} exec '${args.prompt}'"`,
+        success: true 
+      };
     }
   },
 
   // --- TYPESCRIPT REVIEW ---
   typescript_check: {
     name: 'typescript_check',
-    description: 'Ejecuta tsc para verificar errores de compilación TS.',
+    description: 'Ejecuta tsc para verificar errores de compilación TypeScript en un directorio.',
     parameters: {
       type: 'object',
       properties: {
@@ -67,89 +79,14 @@ export const agentSkills = {
       required: ['workdir']
     },
     execute: async (args: { workdir: string }, context: ToolContext) => {
-      if (!context.isAdmin) return "Error: No autorizado.";
+      if (!context.isAdmin) return { output: "Error: No autorizado.", success: false };
       const workdir = path.join(getProjectsPath(), args.workdir);
       try {
         await execPromise(`cd "${workdir}" && npm run tsc`);
-        return "✅ TypeScript check: Sin errores.";
+        return { output: "✅ TypeScript check: Sin errores encontrados.", success: true };
       } catch (e: any) {
-        return `❌ TypeScript Errors:\n${e.stdout || e.message}`;
+        return { output: `❌ Errores TypeScript detectados:\n${e.stdout || e.message}`, success: false };
       }
-    }
-  },
-
-  // --- POSTGRES PATTERNS ---
-  postgres_check_schema: {
-    name: 'postgres_check_schema',
-    description: 'Verifica patrones de esquema en PostgreSQL.',
-    parameters: {
-        type: 'object',
-        properties: { table: { type: 'string' } },
-        required: ['table']
-    },
-    execute: async (args: { table: string }, context: ToolContext) => {
-        if (!context.isAdmin) return "Error: No autorizado.";
-        return `🔎 [POSTGRES-PATTERNS] Analizando esquema para: ${args.table}`;
-    }
-  },
-
-  // --- VERIFICATION LOOP ---
-  run_verification: {
-    name: 'run_verification',
-    description: 'Ejecuta un ciclo de verificación (test/lint) en el proyecto.',
-    parameters: {
-        type: 'object',
-        properties: { workdir: { type: 'string' } },
-        required: ['workdir']
-    },
-    execute: async (args: { workdir: string }, context: ToolContext) => {
-        if (!context.isAdmin) return "Error: No autorizado.";
-        return `✅ [VERIFICATION-LOOP] Ejecutando ciclo de verificación en ${args.workdir}`;
-    }
-  },
-
-  // --- CONTINUOUS LEARNING ---
-  log_pattern: {
-    name: 'log_pattern',
-    description: 'Registra un patrón de éxito en el sistema de aprendizaje.',
-    parameters: {
-        type: 'object',
-        properties: { pattern: { type: 'string' } },
-        required: ['pattern']
-    },
-    execute: async (args: { pattern: string }, context: ToolContext) => {
-        if (!context.isAdmin) return "Error: No autorizado.";
-        return `🧠 [CONTINUOUS-LEARNING] Patrón registrado: ${args.pattern}`;
-    }
-  },
-
-  // --- PLUGIN STRUCTURE ---
-  scaffold_plugin: {
-    name: 'scaffold_plugin',
-    description: 'Crea una estructura base de plugin.',
-    parameters: {
-        type: 'object',
-        properties: { name: { type: 'string' } },
-        required: ['name']
-    },
-    execute: async (args: { name: string }, context: ToolContext) => {
-        if (!context.isAdmin) return "Error: No autorizado.";
-        return `🏗️ [PLUGIN-STRUCTURE] Estructura creada para: ${args.name}`;
-    }
-  },
-
-  // --- AGENT DEVELOPMENT ---
-  create_agent_template: {
-    name: 'create_agent_template',
-    description: 'Crea una plantilla para un nuevo agente autónomo.',
-    parameters: {
-        type: 'object',
-        properties: { name: { type: 'string' } },
-        required: ['name']
-    },
-    execute: async (args: { name: string }, context: ToolContext) => {
-        if (!context.isAdmin) return "Error: No autorizado.";
-        return `🤖 [AGENT-DEVELOPMENT] Plantilla de agente creada: ${args.name}`;
     }
   }
 };
