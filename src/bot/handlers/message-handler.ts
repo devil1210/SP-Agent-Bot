@@ -1,8 +1,25 @@
 import { Bot, Context } from 'grammy';
 import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix } from '../../db/index.js';
 import { getAllowedThreads, getPassiveThreads, getPersonality, getInterventionLevel } from '../../db/settings.js';
-import { processUserMessage } from '../../agent/loop.js';
+import { processUserMessage, TurnResult } from '../../agent/loop.js';
 import { isAdmin, updateBotTag, notifyAdmin } from '../helpers.js';
+
+/**
+ * Sanitiza HTML para Telegram — movido aquí desde agent/loop.ts
+ * El agente es ahora "puro" y no maneja presentación visual.
+ */
+function sanitizeTelegramHTML(text: string): string {
+  let s = text.replace(/&/g, '&amp;');
+  const allowedTags = /<\/?(b|i|u|s|a|code|pre|blockquote|details|summary|strong|em|ins|strike|del|span)(\s+[^>]*)?>/ ;
+  const placeholders: string[] = [];
+  s = s.replace(new RegExp(allowedTags.source, 'gi'), (match) => {
+    placeholders.push(match);
+    return `__VTAG_${placeholders.length - 1}__`;
+  });
+  s = s.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  s = s.replace(/__VTAG_(\d+)__/g, (_, id) => placeholders[parseInt(id)]);
+  return s;
+}
 
 /**
  * Configura el manejador central de mensajes para el bot
@@ -182,23 +199,28 @@ async function handleIncomingMessage(ctx: Context) {
       isSAdmin
     );
 
-    if (result && result.text) {
+    // Adaptar TurnResult al formato de respuesta de Telegram
+    const output = result?.output ?? '';
+    if (output) {
+      // Sanitizar HTML aquí (capa de presentación), no en el agente
+      const safeOutput = sanitizeTelegramHTML(output);
+      console.log(`[Bot] 📤 Enviando respuesta (stop_reason: ${result.stop_reason}, turns: ${result.turns_used})`);
+
       if (result.photoUrl) {
           try {
               await ctx.replyWithPhoto(result.photoUrl, {
-                  caption: result.text,
+                  caption: safeOutput,
                   parse_mode: 'HTML',
                   message_thread_id: threadIdInt
               });
           } catch (e) {
-              // Fallback si la imagen falla
-              await ctx.reply(result.text, {
+              await ctx.reply(safeOutput, {
                   parse_mode: 'HTML',
                   message_thread_id: threadIdInt
               });
           }
       } else {
-          await ctx.reply(result.text, {
+          await ctx.reply(safeOutput, {
               parse_mode: 'HTML',
               message_thread_id: threadIdInt
           });

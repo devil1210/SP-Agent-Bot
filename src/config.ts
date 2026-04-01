@@ -11,9 +11,12 @@ export const config = {
   groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
   postgrestUrl: process.env.POSTGREST_URL || 'http://localhost:3000',
   postgrestAnonKey: process.env.POSTGREST_ANON_KEY || '',
-  tavilyApiKey: process.env.TAVILY_API_KEY || '', // 🌐 Búsqueda en Internet
-  projectsRootPath: process.env.PROJECTS_ROOT_PATH || 'projects', // Ruta base para proyectos
-  codingAgentApiKey: process.env.CODING_AGENT_API_KEY || '', // 🔑 API Key para agentes de codificación
+  tavilyApiKey: process.env.TAVILY_API_KEY || '',
+  projectsRootPath: process.env.PROJECTS_ROOT_PATH || 'projects',
+  codingAgentApiKey: process.env.CODING_AGENT_API_KEY || '',
+  // 🌉 Puente Zeepub-bot (MCP)
+  zeepubApiUrl: process.env.ZEEPUB_API_URL || 'http://localhost:8000',
+  zeepubApiKey: process.env.ZEEPUB_API_KEY || '',
 };
 
 // Validar reglas críticas de env

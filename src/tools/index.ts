@@ -5,6 +5,7 @@ import { accessTools } from './access-tools.js';
 import { searchTools } from './search-tools.js';
 import { messageTools } from './message-tools.js';
 import { memoryTools } from './memory-tools.js';
+import { zeepubBridgeTools } from './zeepub-bridge-tool.js';
 
 export interface Tool {
   name: string;
@@ -20,7 +21,8 @@ export const tools: Record<string, Tool> = {
   ...messageTools,
   ...memoryTools,
   ...orchestratorTools,
-  ...agentSkills
+  ...agentSkills,
+  ...zeepubBridgeTools   // 🌉 Puente MCP → Zeepub-bot
 };
 
 export const getToolsDefinition = () => {
