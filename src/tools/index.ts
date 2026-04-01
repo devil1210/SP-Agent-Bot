@@ -36,6 +36,8 @@ export const getToolsDefinition = () => {
   }));
 };
 
+const TOOL_TIMEOUT_MS = 15_000; // 15 segundos — protección anti-hang
+
 export const executeTool = async (name: string, args: any, context: { chatId: string; userId: string; threadId?: string; quotedMsgId?: number; qIsAssistant?: boolean; isAdmin: boolean }) => {
   const tool = tools[name];
   if (!tool) throw new Error(`Tool ${name} not found`);
@@ -49,5 +51,19 @@ export const executeTool = async (name: string, args: any, context: { chatId: st
     }
   }
 
-  return await tool.execute(parsedArgs, context);
+  // Timeout guard (patrón Nexus — evita hang indefinido si un servicio externo no responde)
+  const start = Date.now();
+  try {
+    const result = await Promise.race([
+      tool.execute(parsedArgs, context),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error(`Tool '${name}' timeout after ${TOOL_TIMEOUT_MS}ms`)), TOOL_TIMEOUT_MS)
+      )
+    ]);
+    console.log(`[Tool:Perf] ⏱️ ${name} completada en ${Date.now() - start}ms`);
+    return result;
+  } catch (e: any) {
+    console.error(`[Tool:Error] ❌ ${name} falló tras ${Date.now() - start}ms: ${e.message}`);
+    return `Error en herramienta '${name}': ${e.message}`;
+  }
 };

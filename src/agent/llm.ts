@@ -8,9 +8,16 @@ export interface Message {
   tool_call_id?: string;
 }
 
+export interface LLMUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
 export interface LLMResponse {
   message: Message;
   provider: string;
+  usage: LLMUsage;
 }
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
@@ -229,7 +236,14 @@ async function callProvider(url: string, key: string, body: any, providerLabel: 
     if (!json.choices || !json.choices[0] || !json.choices[0].message) {
       return null;
     }
-    return json.choices[0].message;
+    return {
+      message: json.choices[0].message,
+      usage: {
+        input_tokens: json.usage?.prompt_tokens ?? 0,
+        output_tokens: json.usage?.completion_tokens ?? 0,
+        total_tokens: json.usage?.total_tokens ?? 0,
+      }
+    };
   } catch (e: any) {
     console.error(`[LLM Chain] ${providerLabel} exception: ${e.message}`);
     return null;
@@ -274,7 +288,7 @@ export const callLLM = async (
   const geminiRes = await callProvider(GEMINI_API_URL, config.geminiApiKey, geminiBody, 'Gemini');
   if (geminiRes) {
     console.log(`[LLM Chain] ✅ Respondido por Gemini (Primario)`);
-    return { message: geminiRes, provider: geminiProvider };
+    return { message: geminiRes.message, provider: geminiProvider, usage: geminiRes.usage };
   } else {
     console.log(`[LLM Chain] ⏭️ Gemini no disponible, intentando Groq...`);
   }
@@ -294,7 +308,7 @@ export const callLLM = async (
   const groqRes = await callProvider(GROQ_API_URL, config.groqApiKey, groqBody, 'Groq');
   if (groqRes) {
     console.log(`[LLM Chain] ✅ Respondido por Groq`);
-    return { message: groqRes, provider: groqProvider };
+    return { message: groqRes.message, provider: groqProvider, usage: groqRes.usage };
   } else {
     console.log(`[LLM Chain] ⏭️ Groq no disponible, saltando a OpenRouter...`);
   }
@@ -311,7 +325,7 @@ export const callLLM = async (
   const orRes = await callProvider(OPENROUTER_API_URL, config.openRouterApiKey, orBody, 'OpenRouter');
   if (orRes) {
     console.log(`[LLM Chain] ✅ Respondido por OpenRouter`);
-    return { message: orRes, provider: orProvider };
+    return { message: orRes.message, provider: orProvider, usage: orRes.usage };
   }
 
   throw new Error("Servicio no disponible (LLM Overload).");

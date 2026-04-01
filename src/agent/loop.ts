@@ -3,6 +3,8 @@ import { getToolsDefinition, executeTool } from '../tools/index.js';
 import { getHistory, addMemory } from '../db/index.js';
 import { getUserModel, getPersonality, getChatFeatures, getInterventionLevel, getPersonalityParams, getEmotionalState } from '../db/settings.js';
 import { cleanResponse, extractFinalResponse } from '../utils/cleanResponse.js';
+import { CostTracker } from './cost-tracker.js';
+import { ToolPermissionContext } from './permissions.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TURN LOOP — Arquitectura Agentic (inspirada en SPcore-Nexus)
@@ -31,47 +33,27 @@ export interface Attachment {
   data: string;
 }
 
-// ── Denegaciones de permisos (Claw-Nexus pattern) ────────────────────────────
-// Evalúa el prompt ANTES de enviarlo al LLM para ocultar herramientas peligrosas.
+// ── Denegaciones de permisos (Nexus pattern — ahora en permissions.ts) ────────
+// Se eliminó inferPermissionDenials() inline → reemplazado por ToolPermissionContext
 
-interface PermissionDenial {
-  tool_name: string;
-  reason: string;
-}
+// ── Compact Messages (anti-OOM, patrón Nexus QueryEngine) ────────────────────
 
-function inferPermissionDenials(
-  prompt: string,
-  isAdmin: boolean,
-  allTools: any[]
-): { allowedTools: any[]; denials: PermissionDenial[] } {
-  const denials: PermissionDenial[] = [];
+function compactMessages(messages: Message[], maxChars: number = 16000): Message[] {
+  let totalChars = messages.reduce((sum, m) => {
+    const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+    return sum + content.length;
+  }, 0);
 
-  const ADMIN_ONLY_TOOLS = ['delete_messages', 'ban_user', 'send_admin_alert'];
-  const DESTRUCTIVE_PATTERNS = /\b(borra|elimina|baneame|resetear|wipe|drop|delete all)\b/i;
-
-  const allowedTools = allTools.filter(tool => {
-    const name: string = tool?.function?.name ?? tool?.name ?? '';
-
-    // Herramientas solo para admins
-    if (ADMIN_ONLY_TOOLS.includes(name) && !isAdmin) {
-      denials.push({ tool_name: name, reason: 'Herramienta restringida a administradores' });
-      return false;
-    }
-
-    // Herramientas destructivas detectadas en el prompt de usuario no-admin
-    if (!isAdmin && DESTRUCTIVE_PATTERNS.test(prompt) && name.toLowerCase().includes('delete')) {
-      denials.push({ tool_name: name, reason: 'Acción destructiva bloqueada para usuarios externos' });
-      return false;
-    }
-
-    return true;
-  });
-
-  if (denials.length > 0) {
-    console.log(`[Agent:Permissions] 🛡️ ${denials.length} herramienta(s) denegada(s): ${denials.map(d => d.tool_name).join(', ')}`);
+  // Mantener mínimo 4 mensajes (system + últimos intercambios)
+  while (totalChars > maxChars && messages.length > 4) {
+    const removed = messages.shift()!;
+    const removedLen = typeof removed.content === 'string'
+      ? removed.content.length
+      : JSON.stringify(removed.content ?? '').length;
+    totalChars -= removedLen;
   }
 
-  return { allowedTools, denials };
+  return messages;
 }
 
 // ── Ejecutor de herramientas ──────────────────────────────────────────────────
@@ -186,9 +168,15 @@ export const processUserMessage = async (
       });
     }
 
-    // ── Gestión de permisos (Nexus pattern) ─────────────────────────────────
+    // ── Gestión de permisos (Nexus ToolPermissionContext) ─────────────────────
+    const permissionCtx = isAdmin
+      ? ToolPermissionContext.forAdmin()
+      : ToolPermissionContext.forExternalUser();
     const allToolsDef = getToolsDefinition();
-    const { allowedTools } = inferPermissionDenials(text, isAdmin, allToolsDef);
+    const { allowed: allowedTools } = permissionCtx.filterTools(allToolsDef);
+
+    // ── Cost Tracker (Nexus UsageSummary) ─────────────────────────────────────
+    const costTracker = new CostTracker(chatId);
 
     // ── Estado del Turn Loop ─────────────────────────────────────────────────
     let turn = 0;
@@ -206,8 +194,11 @@ export const processUserMessage = async (
 
       console.log(`[Agent:Turn ${turn}/${MAX_TURNS}] 🔄 ${isLite ? 'LITE' : 'FULL'} — Consultando LLM...`);
 
+      // Compact messages antes de enviar (anti-OOM, patrón Nexus)
+      const compactedMessages = compactMessages([...messages]);
+
       const llmRes = await callLLM(
-        messages,
+        compactedMessages,
         allowedTools,
         userModel,
         personality,
@@ -218,6 +209,15 @@ export const processUserMessage = async (
       );
 
       if (turn === 1) console.log(`[Agent:Turn ${turn}] 🤖 Motor: ${llmRes.provider}`);
+
+      // Tracking de costos por turno
+      costTracker.addTurn({
+        input_tokens: llmRes.usage.input_tokens,
+        output_tokens: llmRes.usage.output_tokens,
+        total_tokens: llmRes.usage.total_tokens,
+        provider: llmRes.provider,
+        model: userModel,
+      });
 
       const responseMessage = llmRes.message;
       const toolCalls = responseMessage.tool_calls;
@@ -274,6 +274,7 @@ export const processUserMessage = async (
 
         const mem = process.memoryUsage();
         console.log(`[Agent:Done] ✨ Respuesta lista. Chars: ${finalContent.length} | Turnos: ${turn}/${MAX_TURNS} | Herramientas usadas: [${toolsUsed.join(', ')}] | RSS: ${Math.round(mem.rss / 1024 / 1024)}MB`);
+        costTracker.logFinal();
 
         return {
           output: finalContent,
@@ -287,6 +288,7 @@ export const processUserMessage = async (
 
     // Si llegamos aquí, el loop agotó los turnos sin resolver
     console.warn(`[Agent] ⚠️ Max turns (${MAX_TURNS}) alcanzado sin respuesta final.`);
+    costTracker.logFinal();
     return {
       output: 'No pude completar la tarea en el tiempo previsto.',
       stop_reason: 'max_turns_reached',
