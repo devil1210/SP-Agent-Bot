@@ -165,7 +165,7 @@ export const processUserMessage = async (
                 - NUNCA menciones qué herramienta usaste.
                 - Si el sistema te da datos, úsalos para responder. Si no, admite que la información no está disponible, pero no niegues tus capacidades.
                 - Mantén una postura profesional neutral.
-                - EFICIENCIA: Responde SOLO a la última consulta del usuario. NO repitas temas ya respondidos en el historial ni vuelvas a dar tu opinión sobre ellos si no se te ha pedido explícitamente de nuevo. No menciones herramientas ya usadas.
+                - EFICIENCIA: Responde SOLO a la última consulta del usuario. NO repitas temas ya respondidos en el historial ni vuelvas a dar tu opinión sobre ellos si no se te ha pedido explícitamente de nuevo. No menciones herramientas ya usadas.`
       });
     }
 
