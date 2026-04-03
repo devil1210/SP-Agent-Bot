@@ -52,11 +52,10 @@ export const zeepubBridgeTools = {
     },
     execute: async ({ query, tipo = 'serie', limite = 5 }: any) => {
       try {
-        const params = new URLSearchParams({ q: query, type: tipo, limit: String(limite) });
-        const data = await zeepubFetch(`/api/search?${params}`);
-        if (!data || (!data.results && !data.items && !Array.isArray(data))) return `No encontré resultados.`;
-        const results = data.results || data.items || data;
-        const formatted = results.slice(0, limite).map((item: any) => `• <b>${item.name || item.title || 'Sin título'}</b>`).join('\n');
+        const params = new URLSearchParams({ q: query, limit: String(limite) });
+        const results = await zeepubFetch(`/bridge/books?${params}`);
+        if (!results || !Array.isArray(results) || results.length === 0) return `No encontré resultados.`;
+        const formatted = results.slice(0, limite).map((item: any) => `• <b>${item.title || 'Sin título'}</b> (v${item.volume || '?'})`).join('\n');
         return `📚 <b>Resultados:</b>\n${formatted}`;
       } catch (e: any) {
         return `⚠️ Error: ${e.message}`;
@@ -69,8 +68,8 @@ export const zeepubBridgeTools = {
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       try {
-        const data = await zeepubFetch('/api/stats');
-        return `📊 <b>Stats:</b> Books: ${data.total_books}, Series: ${data.total_series}`;
+        const data = await zeepubFetch('/api/status/');
+        return `📊 <b>Stats:</b> Books: ${data.library.total_books}, Uptime: ${data.uptime}`;
       } catch (e: any) {
         return `⚠️ Error: ${e.message}`;
       }
@@ -82,8 +81,8 @@ export const zeepubBridgeTools = {
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       try {
-        const data = await zeepubFetch('/health');
-        return `✅ Online - ${data.status}`;
+        const data = await zeepubFetch('/bridge/status');
+        return `✅ Online - Bridge v${data.bridge_version}`;
       } catch (e: any) {
         return `❌ Offline - ${e.message}`;
       }
