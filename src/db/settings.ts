@@ -125,8 +125,12 @@ export const getPersonalityParams = async (chatId: string, threadId?: string): P
 export const setPersonalityParam = async (chatId: string, param: string, value: number, threadId?: string): Promise<void> => {
     const currentParams = await getPersonalityParams(chatId, threadId);
     const newParams = { ...currentParams, [param.toLowerCase()]: Math.min(100, Math.max(0, value)) };
-    await saveSetting(chatId, threadId, { params: newParams });
+    await savePersonalityParams(chatId, threadId, newParams);
     await addMemory(chatId, 'assistant', `PersonalityParam [${param.toLowerCase()}]: ${newParams[param.toLowerCase()]}`, threadId);
+};
+
+export const savePersonalityParams = async (chatId: string, threadId: string | undefined, params: Record<string, number>): Promise<void> => {
+    await saveSetting(chatId, threadId, { params });
 };
 
 export interface EmotionalState {
@@ -147,7 +151,13 @@ export const getEmotionalState = async (chatId: string, threadId?: string): Prom
 export const setEmotionalState = async (chatId: string, state: Partial<{ humor: number; animo: number; reactividad: number }>, threadId?: string): Promise<void> => {
     const currentParams = await getPersonalityParams(chatId, threadId);
     const newParams = { ...currentParams, ...state };
-    await saveSetting(chatId, threadId, { params: newParams });
+    await saveEmotionalState(chatId, threadId, newParams as { humor: number; animo: number; reactividad: number });
+};
+
+export const saveEmotionalState = async (chatId: string, threadId: string | undefined, state: { humor: number; animo: number; reactividad: number }): Promise<void> => {
+    const currentParams = await getPersonalityParams(chatId, threadId);
+    const newParams = { ...currentParams, ...state };
+    await savePersonalityParams(chatId, threadId, newParams);
     for (const [key, value] of Object.entries(state)) {
         if (value !== undefined) await addMemory(chatId, 'assistant', `PersonalityParam [${key.toLowerCase()}]: ${value}`, threadId);
     }

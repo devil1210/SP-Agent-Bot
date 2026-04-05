@@ -1,6 +1,6 @@
 import { Bot, Context } from 'grammy';
-import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix } from '../../db/index.js';
-import { getAllowedThreads, getPassiveThreads, getPersonality, getInterventionLevel } from '../../db/settings.js';
+import { addMemory, getUserPreferences, incrementTwitterFixCount, setTwitterAutoFix, getHistory } from '../../db/index.js';
+import { getAllowedThreads, getPassiveThreads, getPersonality, getInterventionLevel, getPersonalityParams, getKnownThreads } from '../../db/settings.js';
 import { processUserMessage, TurnResult } from '../../agent/loop.js';
 import { isAdmin, updateBotTag, notifyAdmin } from '../helpers.js';
 
@@ -162,13 +162,48 @@ async function handleIncomingMessage(ctx: Context) {
 
   // DECISIÓN FINAL PARA IA
   if (isGroup) {
-    const substantiveReply = isReplyToBot && !isTrivial;
     const interventionLevel = await getInterventionLevel(chatId, threadId);
+    const params = await getPersonalityParams(chatId, threadId);
     const randomDice = Math.random() * 100;
-    const isRandomIntervention = isActiveThread && !isTrivial && (randomDice <= interventionLevel);
+
+    // --- MEJORA DE LÓGICA DE MIEMBRO (Intervención Inteligente Restringida) ---
+    const lastMsgs = await getHistory(chatId, 1, threadId);
+    const isContinuingThread = lastMsgs[0]?.role === 'assistant';
     
+    // Obtener nombre del hilo para validación de tópico
+    const knownThreads = await getKnownThreads(chatId);
+    const currentThreadIdNum = threadIdInt !== undefined ? threadIdInt : 1;
+    const threadName = knownThreads.find(t => t.id === currentThreadIdNum)?.name?.toLowerCase() || '';
+    
+    // Tópicos aprobados para intervención proactiva
+    const approvedTopics = ['biblioteca', 'libro', 'búsqueda', 'busqueda', 'bug', 'servidor', 'ia'];
+    const isApprovedThread = approvedTopics.some(topic => threadName.includes(topic));
+    
+    // Sensibilidad a palabras clave (temas en los que el bot es experto)
+    const keywords = ['biblioteca', 'libro', 'busco', 'buscando', 'zeepub', 'bot', 'agente', 'error', 'bug', 'v4', 'flash', 'llm', 'ia', 'inteligencia', 'serpent', 'puedes', 'quien', 'configuracion', 'servidor', 'bibliotecario'];
+    const hasKeyword = keywords.some(k => text.toLowerCase().includes(k));
+    
+    // Cálculo de probabilidad dinámica basada en contexto e hilo
+    let dynamicP = interventionLevel;
+    
+    if (isApprovedThread) {
+      // En hilos aprobados, activamos la lógica "Smart" completa
+      if (hasKeyword) dynamicP = Math.max(dynamicP, 40); 
+      if (isContinuingThread) dynamicP += 25;           
+      if (text.length > 120) dynamicP += 15;            
+      
+      // Bonus por parámetros de personalidad
+      if ((params.interes ?? 50) > 70) dynamicP += 15;
+      if (isTrivial && (params.trivialidad ?? 50) < 30) dynamicP -= 30; // Si no soporta trivialidades, calla más
+    } else {
+      // En hilos NO aprobados, somos mucho más discretos (sin boosts)
+      dynamicP = Math.min(dynamicP, 30); // Capamos la intervención espontánea en hilos irrelevantes
+    }
+
+    const isRandomIntervention = isActiveThread && !isTrivial && (randomDice <= dynamicP);
+    const substantiveReply = isReplyToBot && !isTrivial;
     const shouldRespond = isMentioned || isReplyToBot || (isPassiveThread ? substantiveReply : isRandomIntervention);
-    const shouldSaveMemory = shouldRespond || isPassiveThread || isAllMode;
+    const shouldSaveMemory = shouldRespond || isPassiveThread || isActiveThread || isAllMode;
 
     if (!shouldRespond) {
       if (shouldSaveMemory) {
@@ -226,11 +261,12 @@ async function handleIncomingMessage(ctx: Context) {
           });
       }
     }
-  } catch (e: any) {
-    console.error(`[Bot] Error procesando mensaje:`, e);
-    await ctx.reply(`❌ Error procesando tu mensaje: ${e.message}`, {
-      parse_mode: 'HTML',
-      message_thread_id: threadIdInt
+  } catch (error) {
+    console.error(`[Message Handler Error]`, error);
+  } finally {
+    // 🧠 Refinamiento psicológico en segundo plano (no bloqueante)
+    import('../../agent/refiner.js').then(m => {
+      m.checkAndRefine(chatId, threadId).catch(err => console.error(`[Refiner Trigger Error]`, err));
     });
   }
 }

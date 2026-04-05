@@ -1,7 +1,7 @@
 import { callLLM, Message } from './llm.js';
 import { getToolsDefinition, executeTool } from '../tools/index.js';
 import { getHistory, addMemory } from '../db/index.js';
-import { getUserModel, getPersonality, getChatFeatures, getInterventionLevel, getPersonalityParams, getEmotionalState } from '../db/settings.js';
+import { getUserModel, getPersonality, getChatFeatures, getInterventionLevel, getPersonalityParams, getEmotionalState, getKnownThreads } from '../db/settings.js';
 import { cleanResponse, extractFinalResponse } from '../utils/cleanResponse.js';
 import { CostTracker } from './cost-tracker.js';
 import { ToolPermissionContext } from './permissions.js';
@@ -117,6 +117,8 @@ export const processUserMessage = async (
     const features = await getChatFeatures(chatId);
     const interventionLevel = await getInterventionLevel(chatId, threadId);
     const personalityParams = await getPersonalityParams(chatId, threadId);
+    const knownThreads = await getKnownThreads(chatId);
+    const threadName = knownThreads.find((t: any) => t.id === (threadId ? parseInt(threadId) : 1))?.name || 'General';
 
     const persSummary = personality ? (personality.substring(0, 50).replace(/\n/g, ' ') + '...') : 'Estándar';
     console.log(`[Agent] 🧠 Iniciando Turn Loop (Model: ${userModel}, Persona: ${persSummary}, MaxTurns: ${MAX_TURNS})`);
@@ -148,19 +150,19 @@ export const processUserMessage = async (
 
     messages.push({ role: 'user', content: userContent });
 
-    // Guardia emocional para usuarios externos
+    // Guardia emocional para usuarios externos (Inyección de estado actual)
     if (!isAdmin) {
       const emotionalState = await getEmotionalState(chatId, threadId);
       messages.push({
         role: 'system',
-        content: `ANALIZADOR TÉCNICO (OBJETIVO):
-              - Eres SP-Agent, un agente técnico profesional y objetivo.
-              - TU ESTADO EMOCIONAL ACTUAL (0-100):
-                - Humor: ${emotionalState.humor}
-                - Ánimo: ${emotionalState.animo}
-                - Reactividad: ${emotionalState.reactividad}
+        content: `MODULACIÓN DINÁMICA DE ESTADO:
+              - MANTÉN FIELMENTE tu personalidad asignada en el bloque principal.
+              - TU ESTADO EMOCIONAL ACTUAL (Este estado debe matizar tu entrega, NO reemplazar tu personaje):
+                - Humor: ${emotionalState.humor}/100
+                - Ánimo: ${emotionalState.animo}/100
+                - Reactividad: ${emotionalState.reactividad}/100
               - REGLAS DE RESPUESTA:
-                - Analiza el input del usuario de manera técnica.
+                - Adapta la intensidad de tus respuestas a este estado (ej: si humor=LOW, sé más cortante o sombría dentro de tu personaje).
                 - SI EL USUARIO PIDE INFORMACIÓN DE ACTUALIDAD, NOTICIAS O TENDENCIAS: DEBES USAR OBLIGATORIAMENTE LAS HERRAMIENTAS 'search_via_internet' O 'radar_de_tendencias'. NO NIEGUES EL ACCESO, TIENES PERMISO TOTAL.
                 - NUNCA menciones qué herramienta usaste.
                 - Si el sistema te da datos, úsalos para responder. Si no, admite que la información no está disponible, pero no niegues tus capacidades.
@@ -224,7 +226,8 @@ export const processUserMessage = async (
         features,
         interventionLevel,
         isLite ? 'lite' : 'full',
-        personalityParams
+        personalityParams,
+        threadName
       );
 
       if (turn === 1) console.log(`[Agent:Turn ${turn}] 🤖 Motor: ${llmRes.provider}`);
@@ -363,8 +366,11 @@ Responde ÚNICAMENTE con "[RESPOND]" si tiene valor o "[SILENCE]" si no lo tiene
       { role: 'user', content: `MENSAJE A EVALUAR:\n"""${text}"""` }
     ];
 
+    const knownThreads = await getKnownThreads(chatId);
+    const threadName = knownThreads.find((t: any) => t.id === (threadId ? parseInt(threadId) : 1))?.name || 'General';
+
     const { callLLM } = await import('./llm.js');
-    const llmRes = await callLLM(messages, [], userModel, personality, features, 100, 'lite', personalityParams);
+    const llmRes = await callLLM(messages, [], userModel, personality, features, 100, 'lite', personalityParams, threadName);
 
     const content = typeof llmRes.message.content === 'string'
       ? llmRes.message.content
@@ -407,7 +413,10 @@ REGLAS CRÍTICAS:
       { role: 'user', content: `TEXTO ORIGINAL:\n"""${originalText}"""\n\nINSTRUCCIONES DE LA SUPERVISIÓN:\n"""${instructions}"""` }
     ];
 
-    const llmRes = await callLLM(messages, [], userModel, personality, features);
+    const knownThreads = await getKnownThreads(chatId);
+    const threadName = knownThreads.find((t: any) => t.id === (threadId ? parseInt(threadId) : 1))?.name || 'General';
+
+    const llmRes = await callLLM(messages, [], userModel, personality, features, 100, 'full', {}, threadName);
     const finalContent = typeof llmRes.message.content === 'string'
       ? llmRes.message.content
       : JSON.stringify(llmRes.message.content);
