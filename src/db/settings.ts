@@ -90,8 +90,8 @@ export const setUserModel = async (chatId: string, model: string, threadId?: str
 
 export const getPersonality = async (chatId: string, threadId?: string): Promise<string | null> => {
     return await getOrMigrate(chatId, threadId, 'personality', null, (history) => {
-        const persMsg = history.filter(m => m.role === 'assistant' && m.content.includes('Personalidad definida:')).pop();
-        if (persMsg) {
+        const persMsg = history.filter(m => m.role === 'assistant' && (m.content.includes('Personalidad definida:') || m.content.includes('personalidad ha sido restablecida'))).pop();
+        if (persMsg && persMsg.content.includes('Personalidad definida:')) {
             const match = persMsg.content.match(/Personalidad definida: (.*)/s);
             return match ? match[1].trim() : null;
         }
@@ -100,13 +100,12 @@ export const getPersonality = async (chatId: string, threadId?: string): Promise
 };
 
 export const setPersonality = async (chatId: string, persona: string, threadId?: string): Promise<void> => {
-    if (!persona || persona.trim() === "") {
-        // Borrar configuración para que el bot vuelva al default del prompt de sistema
-        await db.from('bot_settings')
-            .delete()
-            .eq('chat_id', chatId)
-            .eq('thread_id', threadId || 'general');
-        return;  // No añadir memoria cuando se elimina la configuración
+    if (!persona || persona.trim() === "" || persona.toLowerCase() === 'default') {
+        // Marcamos como null en bot_settings para evitar que getOrMigrate traiga valores antiguos del historial
+        await saveSetting(chatId, threadId, { personality: null });
+        // Añadimos una entrada en memoria para "limpiar" el estilo de la conversación para el LLM
+        await addMemory(chatId, 'assistant', `🛠️ La personalidad ha sido restablecida al valor por defecto (Asistente Estándar).`, threadId);
+        return;
     }
     await saveSetting(chatId, threadId, { personality: persona });
     await addMemory(chatId, 'assistant', `Personalidad definida: ${persona}`, threadId);
