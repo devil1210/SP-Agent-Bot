@@ -73,3 +73,19 @@ export async function deleteManagedBot(id: string): Promise<void> {
     console.error('[DB Error] deleteManagedBot:', error.message);
   }
 }
+
+/**
+ * Obtener bots por owner
+ */
+export async function getManagedBotsByOwner(ownerId: string): Promise<ManagedBot[]> {
+  const { data, error } = await db
+    .from('managed_bots')
+    .select('*')
+    .eq('owner_id', ownerId);
+
+  if (error) {
+    console.error('[DB Error] getManagedBotsByOwner:', error.message);
+    return [];
+  }
+  return data || [];
+}

@@ -158,6 +158,13 @@ Manejas la rama <code>v4-agency-rebuild</code> de ZeePub-Bot.
   - CAPACIDAD: Puedes buscar información actualizada, noticias y tendencias en tiempo real.
   - OBLIGACIÓN: Ante preguntas sobre actualidad, noticias o temas del momento, DEBES usar siempre tus herramientas de búsqueda ('search_via_internet', 'radar_de_tendencias') para dar información veraz y contrastada.`;
 
+  if (features.includes('bot_management')) {
+    base += `\n\n<b>GESTIÓN DE BOTS PROPIOS:</b>
+    - CAPACIDAD: Puedes ayudar a los usuarios a CREAR Y GESTIONAR sus propios bots de Telegram basados en tu tecnología.
+    - HERRAMIENTAS: Usa 'get_bot_creation_link' para generar el enlace de creación.
+    - EXPLICACIÓN: Cuando un usuario quiera su propio bot, explícale que puedes generarle un enlace especial. Al abrirlo, Telegram le permite autorizar un nuevo bot. Una vez hecho, tú (SP-Agent) tomarás el control de ese nuevo bot y lo activarás con las capacidades de este sistema.`;
+  }
+
   const securityBlock = `
 
 REGLAS CRÍTICAS DE SEGURIDAD (MÁXIMA PRIORIDAD):

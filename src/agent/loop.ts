@@ -186,6 +186,7 @@ export const processUserMessage = async (
       'search': 'search_via_internet|buscar_imagenes|radar_de_tendencias',
       'dev_prod': 'clone_repository|modify_file|commit_and_push|spawn_coding_agent|gh_pr_list|run_coding_agent|typescript_check',
       'dev_test': 'clone_repository|modify_file|commit_and_push|spawn_coding_agent|gh_pr_list|run_coding_agent|typescript_check',
+      'bot_management': 'get_bot_creation_link|list_my_managed_bots',
     };
 
     const allToolsDef = getToolsDefinition((name) => {

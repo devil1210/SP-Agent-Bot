@@ -57,11 +57,12 @@ export function registerMiscCommands(bot: Bot) {
       return await notifyAdmin(ctx, `🧩 <b>Módulos de conocimiento en <code>${targetChatId}</code>:</b>\n\n` +
         `• 📚 <code>library</code>: ${current.includes('library') ? '✅ Activo' : '❌ Inactivo'}\n` +
         `• 🏭 <code>dev_prod</code> (Main): ${current.includes('dev_prod') ? '✅ Activo' : '❌ Inactivo'}\n` +
-        `• 🧪 <code>dev_test</code> (V4): ${current.includes('dev_test') ? '✅ Activo' : '❌ Inactivo'}`);
+        `• 🧪 <code>dev_test</code> (V4): ${current.includes('dev_test') ? '✅ Activo' : '❌ Inactivo'}\n` +
+        `• 🤖 <code>bot_management</code>: ${current.includes('bot_management') ? '✅ Activo' : '❌ Inactivo'}`);
     }
 
     const feature = actionParts[0].toLowerCase();
-    const valid = ['library', 'dev_prod', 'dev_test'];
+    const valid = ['library', 'dev_prod', 'dev_test', 'bot_management'];
 
     if (!valid.includes(feature)) {
       return await notifyAdmin(ctx, `❌ Módulo no válido. Opciones: <code>${valid.join(', ')}</code>`);
