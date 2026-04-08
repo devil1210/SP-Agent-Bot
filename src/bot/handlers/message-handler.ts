@@ -98,6 +98,33 @@ async function handleIncomingMessage(ctx: Context) {
 
     // Verificar mención
     const mentionRegex = new RegExp(`@${botUsername}\\b`, 'i');
+    
+    // --- LÓGICA DE MANAGED BOTS ---
+    const { getManagedBotByUsername } = await import('../../db/managed-bots.js');
+    const managedBot = await getManagedBotByUsername(botUsername || '');
+    if (managedBot) {
+        const assignments = managedBot.thread_assignments || [];
+        const isAssigned = assignments.some(a => a.chat_id === chatId && (Number(a.thread_id) === threadIdInt || (!a.thread_id && !threadIdInt)));
+        const mentionRegexManaged = new RegExp(`@${botUsername}\\b`, 'i');
+        const isMentionedManaged = mentionRegexManaged.test(text);
+        if (!isAssigned && !isMentionedManaged && !ctx.message?.reply_to_message?.from?.username?.includes(botUsername || '')) {
+            await addMemory(chatId, 'user', `${senderName}: ${text}`, threadId, ctx.message?.message_id);
+            return;
+        }
+        if (managedBot.personality) {
+            const result = await processUserMessage(chatId, userId, text, threadId, [], ctx.message?.message_id, ctx.message?.reply_to_message?.message_id, ctx.message?.reply_to_message?.from?.is_bot, senderName, isSAdmin, managedBot.personality);
+            const output = result?.output ?? '';
+            if (output) {
+                const safeOutput = sanitizeTelegramHTML(output);
+                if (result.photoUrl) {
+                    try { await ctx.replyWithPhoto(result.photoUrl, { caption: safeOutput, parse_mode: 'HTML', message_thread_id: threadIdInt }); } 
+                    catch { await ctx.reply(safeOutput, { parse_mode: 'HTML', message_thread_id: threadIdInt }); }
+                } else { await ctx.reply(safeOutput, { parse_mode: 'HTML', message_thread_id: threadIdInt }); }
+            }
+            return;
+        }
+    }
+
     isMentioned = mentionRegex.test(text);
 
     // Filtro fxtwitter

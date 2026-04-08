@@ -74,33 +74,37 @@ export const clearMemory = async (chatId: string, threadId?: string): Promise<vo
  * 🐘 MEMORIA DE LARGO PLAZO (RAG / Vector Database)
  */
 
-export const addLongTermMemory = async (chatId: string, content: string, metadata: any = {}) => {
+export const addLongTermMemory = async (chatId: string, content: string, metadata: any = {}, threadId?: string, msgId?: number) => {
   try {
-    const embedding = await generateEmbedding(content);
+    const vector = await generateEmbedding(content);
     const { error } = await db
       .from('long_term_memory')
       .insert({
         chat_id: chatId,
         content,
         metadata,
-        embedding
+        vector,
+        thread_id: threadId || null,
+        msg_id: msgId || null
       });
     
     if (error) throw error;
-    console.log(`[LTM] Memoria guardada para: ${chatId}`);
+    console.log(`[LTM] Memoria guardada para: ${chatId}${threadId ? ` (Hilo: ${threadId})` : ''}`);
   } catch (err: any) {
     console.error('[DB Error] addLongTermMemory:', err.message);
   }
 };
 
-export const searchLongTermMemory = async (chatId: string, query: string, count: number = 3) => {
+
+export const searchLongTermMemory = async (chatId: string, query: string, count: number = 3, threadId?: string) => {
   try {
-    const queryEmbedding = await generateEmbedding(query);
+    const queryVector = await generateEmbedding(query);
     const { data, error } = await db.rpc('match_long_term_memory', {
-      query_embedding: queryEmbedding,
+      query_vector: queryVector,
       match_threshold: 0.65, // Solo lo que sea relevante
       match_count: count,
-      p_chat_id: chatId
+      p_chat_id: chatId,
+      p_thread_id: threadId || null
     });
 
     if (error) throw error;
@@ -110,6 +114,7 @@ export const searchLongTermMemory = async (chatId: string, query: string, count:
     return [];
   }
 };
+
 
 /**
  * 🛠️ PREFERENCIAS DE USUARIO (Twitter Auto-Fix, etc.)

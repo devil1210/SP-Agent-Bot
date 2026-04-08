@@ -51,7 +51,8 @@ const TOOL_TIMEOUT_MS = 15_000;
 export const executeTool = async (
   name: string, 
   args: any, 
-  context: { chatId: string; userId: string; threadId?: string; quotedMsgId?: number; qIsAssistant?: boolean; isAdmin: boolean }
+  context: { chatId: string; userId: string; threadId?: string; userMsgId?: number; quotedMsgId?: number; qIsAssistant?: boolean; isAdmin: boolean }
+
 ): Promise<ToolResult> => {
   
   let parsedArgs = args;

@@ -103,17 +103,20 @@ export const processUserMessage = async (
   quotedMsgId?: number,
   qIsAssistant?: boolean,
   senderName?: string,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  forcedPersonality?: string,
+  forcedModel?: string
 ): Promise<TurnResult> => {
 
-  const turnContext = { chatId, userId, threadId, quotedMsgId, qIsAssistant, isAdmin };
+  const turnContext = { chatId, userId, threadId, userMsgId, quotedMsgId, qIsAssistant, isAdmin };
+
 
   try {
     const history = await getHistory(chatId, 15, threadId);
     await addMemory(chatId, 'user', text, threadId, userMsgId, senderName, isAdmin);
 
-    const userModel = await getUserModel(chatId, threadId);
-    const personality = await getPersonality(chatId, threadId);
+    const userModel = forcedModel || await getUserModel(chatId, threadId);
+    const personality = forcedPersonality || await getPersonality(chatId, threadId);
     const features = await getChatFeatures(chatId);
     const interventionLevel = await getInterventionLevel(chatId, threadId);
     const personalityParams = await getPersonalityParams(chatId, threadId);

@@ -152,4 +152,48 @@ export function registerAdminCommands(bot: Bot) {
       await notifyAdmin(ctx, `❌ Error al editar: ${e.message}`);
     }
   });
+
+  bot.command('newbot', isAdminMiddleware, async (ctx) => {
+    const args = ctx.match.split(' ');
+    if (args.length < 2) {
+      return await ctx.reply('💡 <b>Uso:</b> <code>/newbot [username] [nombre]</code>\n\nEjemplo: <code>/newbot MiBot Socrates</code>', { parse_mode: 'HTML' });
+    }
+    const username = args[0];
+    const name = args.slice(1).join(' ');
+    const managerUsername = ctx.me.username;
+
+    const { ManagedBotService } = await import('../manager.js');
+    const link = ManagedBotService.getCreationLink(managerUsername, username, name);
+
+    await ctx.reply(`✨ <b>¡Listo para crear tu nuevo bot!</b>\n\nUsa este enlace para activarlo:\n\n<a href="${link}">CREAR BOT: ${name}</a>\n\n<i>Una vez creado, el bot se activará automáticamente.</i>`, { parse_mode: 'HTML' });
+  });
+
+  bot.command('assignbot', isAdminMiddleware, async (ctx) => {
+    const username = ctx.match.trim().replace('@', '');
+    if (!username) {
+      return await ctx.reply('💡 <b>Uso:</b> <code>/assignbot [username_del_bot]</code>\n\nEjecuta este comando en el hilo donde quieras que el bot participe.', { parse_mode: 'HTML' });
+    }
+
+    const chatId = ctx.chat.id.toString();
+    const threadId = ctx.message?.message_thread_id;
+
+    const { getManagedBotByUsername, upsertManagedBot } = await import('../../db/managed-bots.js');
+    const managedBot = await getManagedBotByUsername(username);
+
+    if (!managedBot) {
+      return await ctx.reply('❌ No se encontró ningún bot gestionado con ese nombre.');
+    }
+
+    const assignments = managedBot.thread_assignments || [];
+    const exists = assignments.some(a => a.chat_id === chatId && a.thread_id === threadId);
+
+    if (!exists) {
+      assignments.push({ chat_id: chatId, thread_id: threadId || 0 });
+      await upsertManagedBot({ ...managedBot, thread_assignments: assignments });
+      await ctx.reply(`✅ @${username} asignado a este ${threadId ? 'hilo' : 'chat'}.`);
+    } else {
+      await ctx.reply(`⚠️ @${username} ya está asignado aquí.`);
+    }
+  });
 }
+

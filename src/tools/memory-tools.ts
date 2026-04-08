@@ -12,16 +12,18 @@ export const memoryTools = {
       },
       required: ['action', 'text'],
     },
-    execute: async ({ action, text }: any, { chatId }: any) => {
+    execute: async ({ action, text }: any, { chatId, threadId, userMsgId }: any) => {
       if (action === 'save') {
-        await addLongTermMemory(chatId, text);
+        await addLongTermMemory(chatId, text, {}, threadId, userMsgId);
         return 'Información guardada en memoria de largo plazo.';
       } else {
-        const results = await searchLongTermMemory(chatId, text);
+        const results = await searchLongTermMemory(chatId, text, 3, threadId);
         return results.length > 0
           ? `Resultados de memoria:\n${results.map((r: any) => `- ${r.content}`).join('\n')}`
           : 'No se encontraron recuerdos relevantes.';
       }
     }
+
+
   }
 };
