@@ -4,7 +4,7 @@ import { getInterventionLevel, setInterventionLevel, getPersonalityParams, setPe
 
 export function registerConfigCommands(bot: Bot) {
   bot.command('model', isAdminMiddleware, async (ctx) => {
-    const model = ctx.match || 'gemini-3.1-flash-lite-preview';
+    const model = ctx.match || 'gemini-3.1-flash-lite';
     const threadId = ctx.message?.message_thread_id?.toString();
     const { setUserModel } = await import('../../db/settings.js');
     await setUserModel(ctx.chat.id.toString(), model, threadId);

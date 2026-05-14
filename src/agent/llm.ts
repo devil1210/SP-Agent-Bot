@@ -273,7 +273,7 @@ async function callProvider(url: string, key: string, body: any, providerLabel: 
 export const callLLM = async (
   messages: Message[],
   toolsDefinition: any[],
-  model: string = 'gemini-3.1-flash-lite-preview',
+  model: string = 'gemini-3.1-flash-lite',
   personality: string | null = null,
   features: string[] = [],
   interventionLevel: number = 100,
@@ -288,11 +288,12 @@ export const callLLM = async (
   // Solo enviamos herramientas si hay alguna definida
   const tools = (toolsDefinition && toolsDefinition.length > 0) ? toolsDefinition : undefined;
 
-  // 1. Gemini (Primario - 3.1 Flash Lite Preview)
+  // 1. Gemini (Primario - 3.1 Flash Lite)
   // Mapeo inteligente para evitar errores de nombres comunes
   const modelMap: Record<string, string> = {
-    'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite-preview',
-    'gemini-flash-lite': 'gemini-3.1-flash-lite-preview',
+    'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite',
+    'gemini-flash-lite': 'gemini-3.1-flash-lite',
+    'gemini-preview': 'gemini-3.1-flash-lite',
     'gemini-3.1-flash': 'gemini-3.1-flash-12b-latest', // O el que prefieras
   };
 

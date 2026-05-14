@@ -19,7 +19,7 @@ export function registerAdminCommands(bot: Bot) {
 • /clear - Borra la memoria del chat o hilo actual (Solo Admin)
 
 <b>Configuración de IA:</b>
-• /model [nombre] - Cambia el modelo de IA (ej: gemini-1.5-pro)
+• /model [nombre] - Cambia el modelo de IA (ej: gemini-3.1-flash-lite)
 • /intr [0-100] - Ajusta la frecuencia de intervención (%)
 • /persona [instrucciones] - Configura una personalidad libre
 • /setpersona [nombre] - Carga una personalidad guardada

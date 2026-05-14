@@ -84,7 +84,7 @@ Ejemplo: {"sarcasmo": 45, "agresividad": 20}`;
   ];
 
   // 3. Llamar LLM (usamos lite para eficiencia)
-  const llmRes = await callLLM(messages, [], 'gemini-3.1-flash-lite-preview', personality, [], 100, 'lite');
+  const llmRes = await callLLM(messages, [], 'gemini-3.1-flash-lite', personality, [], 100, 'lite');
   
   try {
     const rawContent = typeof llmRes.message.content === 'string' ? llmRes.message.content : JSON.stringify(llmRes.message.content);

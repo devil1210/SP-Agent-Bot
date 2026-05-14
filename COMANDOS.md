@@ -40,7 +40,7 @@ Activa o desactiva módulos de conocimiento específicos para un grupo.
 - **Estado**: `/features` (Muestra qué hay activo).
 
 ### `/model [nombre_modelo]`
-Cambia el motor de IA (ej: `gemini-3.1-flash-lite-preview`).
+Cambia el motor de IA (ej: `gemini-3.1-flash-lite`).
 
 ---
 

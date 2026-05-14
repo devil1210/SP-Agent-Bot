@@ -73,7 +73,7 @@ const getSettingsHistory = async (chatId: string, threadId?: string, limit: numb
 // --- API Refactorizada ---
 
 export const getUserModel = async (chatId: string, threadId?: string): Promise<string> => {
-    return await getOrMigrate(chatId, threadId, 'model', 'gemini-3.1-flash-lite-preview', (history) => {
+    return await getOrMigrate(chatId, threadId, 'model', 'gemini-3.1-flash-lite', (history) => {
         const modelSetMsg = history.filter(m => m.role === 'assistant' && m.content.includes('Modelo cambiado a:')).pop();
         if (modelSetMsg) {
             const match = modelSetMsg.content.match(/Modelo cambiado a: ([\w.-]+)/);
@@ -169,12 +169,16 @@ export const getChatFeatures = async (chatId: string): Promise<string[]> => {
     try {
         const history = await getSettingsHistory(chatId);
         const msg = history.filter(m => m.role === 'assistant' && m.content.includes('Features habilitadas:')).pop();
+        let list = ['library', 'bot_management'];
         if (msg) {
             const match = msg.content.match(/Features habilitadas: \[(.*)\]/);
-            return match ? match[1].split(',').map((s: string) => s.trim()).filter(s => s.length > 0) : ['library'];
+            if (match) {
+                list = match[1].split(',').map((s: string) => s.trim()).filter(s => s.length > 0);
+            }
         }
-        return ['library'];
-    } catch (e) { return ['library']; }
+        if (!list.includes('bot_management')) list.push('bot_management');
+        return list;
+    } catch (e) { return ['library', 'bot_management']; }
 };
 
 export const setChatFeatures = async (chatId: string, features: string[]): Promise<void> => {
