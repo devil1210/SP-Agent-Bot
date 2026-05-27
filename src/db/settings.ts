@@ -6,6 +6,37 @@ import { db, getHistory, addMemory, MemoryEntry } from './index.js';
 const GLOBAL_CONFIG_ID = 'system_global_config';
 
 /**
+ * Caché en memoria con TTL (Time To Live) para evitar sobrecargar la base de datos
+ */
+class LocalTTLCache<T> {
+  private cache = new Map<string, { value: T; expiresAt: number }>();
+  constructor(private ttlMs: number = 120_000) {} // 2 minutos por defecto
+
+  get(key: string): T | null {
+    const item = this.cache.get(key);
+    if (!item) return null;
+    if (Date.now() > item.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+    return item.value;
+  }
+
+  set(key: string, value: T): void {
+    this.cache.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+  }
+
+  delete(key: string): void {
+    this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+const settingsCache = new LocalTTLCache<any>();
+
+/**
  * Helper para obtener o migrar configuración de historial a la tabla bot_settings
  */
 async function getOrMigrate<T>(
@@ -16,6 +47,13 @@ async function getOrMigrate<T>(
     parseFn: (history: MemoryEntry[]) => T | null
 ): Promise<T> {
     const thread = threadId || 'general';
+    const cacheKey = `setting:${column}:${chatId}:${thread}`;
+
+    // Intentar leer de la caché primero
+    const cachedValue = settingsCache.get(cacheKey);
+    if (cachedValue !== null && cachedValue !== undefined) {
+        return cachedValue as T;
+    }
     
     // 1. Intentar leer desde la tabla optimizada
     const { data } = await db
@@ -26,7 +64,9 @@ async function getOrMigrate<T>(
         .maybeSingle();
 
     if (data) {
-        return (data as any)[column] as T;
+        const val = (data as any)[column] as T;
+        settingsCache.set(cacheKey, val);
+        return val;
     }
 
 
@@ -44,6 +84,7 @@ async function getOrMigrate<T>(
         updated_at: new Date().toISOString()
     });
 
+    settingsCache.set(cacheKey, value);
     return value;
 }
 
@@ -51,11 +92,18 @@ async function getOrMigrate<T>(
  * Helper para guardar configuración en bot_settings
  */
 async function saveSetting(chatId: string, threadId: string | undefined, data: any): Promise<void> {
+    const thread = threadId || 'general';
     await db.from('bot_settings').upsert({
         chat_id: chatId,
-        thread_id: threadId || 'general',
+        thread_id: thread,
         ...data,
         updated_at: new Date().toISOString()
+    });
+
+    // Invalidar la caché para cada campo actualizado
+    Object.keys(data).forEach(key => {
+        const cacheKey = `setting:${key}:${chatId}:${thread}`;
+        settingsCache.delete(cacheKey);
     });
 }
 
@@ -166,6 +214,12 @@ export const saveEmotionalState = async (chatId: string, threadId: string | unde
 // ... Mantenemos las funciones de Features, Threads y Autorización igual por ahora (sin migración masiva) ...
 
 export const getChatFeatures = async (chatId: string): Promise<string[]> => {
+    const cacheKey = `features:${chatId}`;
+    const cached = settingsCache.get(cacheKey);
+    if (cached !== null && cached !== undefined) {
+        return cached;
+    }
+
     try {
         const history = await getSettingsHistory(chatId);
         const msg = history.filter(m => m.role === 'assistant' && m.content.includes('Features habilitadas:')).pop();
@@ -177,12 +231,14 @@ export const getChatFeatures = async (chatId: string): Promise<string[]> => {
             }
         }
         if (!list.includes('bot_management')) list.push('bot_management');
+        settingsCache.set(cacheKey, list);
         return list;
     } catch (e) { return ['library', 'bot_management']; }
 };
 
 export const setChatFeatures = async (chatId: string, features: string[]): Promise<void> => {
     await addMemory(chatId, 'assistant', `Features habilitadas: [${features.join(', ')}]`);
+    settingsCache.delete(`features:${chatId}`);
 };
 
 export const getAllowedThreads = async (chatId: string): Promise<number[]> => {

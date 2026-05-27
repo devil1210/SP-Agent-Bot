@@ -5,6 +5,57 @@ import { processUserMessage, TurnResult } from '../../agent/loop.js';
 import { isAdmin, updateBotTag, notifyAdmin } from '../helpers.js';
 
 /**
+ * Estructuras para Rate Limiting en memoria
+ */
+const userMessageTimestamps = new Map<string, number[]>();
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const limitWindowMs = 10_000; // 10 segundos
+  const maxMessages = 5; // máximo 5 mensajes
+
+  let timestamps = userMessageTimestamps.get(userId) || [];
+  timestamps = timestamps.filter(ts => now - ts < limitWindowMs);
+  
+  if (timestamps.length >= maxMessages) {
+    return false;
+  }
+
+  timestamps.push(now);
+  userMessageTimestamps.set(userId, timestamps);
+  return true;
+}
+
+/**
+ * Balanceador de etiquetas HTML para evitar errores de parseo en la API de Telegram
+ */
+function balanceTelegramHTML(html: string): string {
+  const tagRegex = /<\/([a-zA-Z0-9]+)>|<([a-zA-Z0-9]+)(?:\s+[^>]*)?>/g;
+  const stack: string[] = [];
+  let match;
+
+  while ((match = tagRegex.exec(html)) !== null) {
+    const isClosing = match[0].startsWith('</');
+    const tagName = (isClosing ? match[1] : match[2]).toLowerCase();
+
+    if (isClosing) {
+      const index = stack.lastIndexOf(tagName);
+      if (index !== -1) {
+        stack.splice(index, 1);
+      }
+    } else {
+      stack.push(tagName);
+    }
+  }
+
+  let balancedHtml = html;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    balancedHtml += `</${stack[i]}>`;
+  }
+  return balancedHtml;
+}
+
+/**
  * Sanitiza HTML para Telegram — movido aquí desde agent/loop.ts
  * El agente es ahora "puro" y no maneja presentación visual.
  */
@@ -18,7 +69,7 @@ function sanitizeTelegramHTML(text: string): string {
   });
   s = s.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   s = s.replace(/__VTAG_(\d+)__/g, (_, id) => placeholders[parseInt(id)]);
-  return s;
+  return balanceTelegramHTML(s);
 }
 
 /**
@@ -56,6 +107,15 @@ async function handleIncomingMessage(ctx: Context) {
     return;
   }
 
+  // Verificar admin primero para el bypass del rate limiter
+  const isSAdmin = await isAdmin(userId);
+
+  // Rate Limiting Protection (omitir para administradores)
+  if (!isSAdmin && !checkRateLimit(userId)) {
+    console.warn(`[Bot] ⚠️ Rate limit superado para el usuario ${userId}`);
+    return;
+  }
+
   // Obtener configuración del bot
   let botUsername = ctx.me?.username;
   if (!botUsername) {
@@ -66,8 +126,6 @@ async function handleIncomingMessage(ctx: Context) {
   // Verificar si es respuesta al bot
   let isReplyToBot = ctx.message?.reply_to_message?.from?.username === botUsername;
   
-  // Verificar admin
-  const isSAdmin = await isAdmin(userId);
   const senderName = `${ctx.from?.first_name || "Usuario"} (ID: ${userId})`;
 
   console.log(`[Bot] 📥 De ${senderName}: "${text.substring(0, 30)}..."`);

@@ -17,6 +17,9 @@ export const config = {
   // 🌉 Puente Zeepub-bot (MCP)
   zeepubApiUrl: process.env.ZEEPUB_API_URL || 'http://localhost:8000',
   zeepubApiKey: process.env.ZEEPUB_API_KEY || '',
+  // 🌐 Webhooks opcionales para producción
+  webhookUrl: process.env.WEBHOOK_URL || '',
+  port: parseInt(process.env.PORT || '8080'),
 };
 
 // Validar reglas críticas de env

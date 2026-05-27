@@ -4,7 +4,17 @@ import { callLLM, Message } from './llm.js';
 
 export type RefinementType = 'instant' | 'short' | 'deep';
 
+// Semáforo mutex para evitar ejecuciones concurrentes en el mismo chat/hilo
+const activeRefinements = new Set<string>();
+
 export async function checkAndRefine(chatId: string, threadId?: string) {
+  const lockKey = `${chatId}:${threadId || 'general'}`;
+  if (activeRefinements.has(lockKey)) {
+    console.log(`[Refiner] 🔒 Bloqueado: Refinamiento ya en curso para ${lockKey}`);
+    return;
+  }
+  activeRefinements.add(lockKey);
+
   try {
     const params = await getPersonalityParams(chatId, threadId);
     const now = Date.now();
@@ -34,6 +44,8 @@ export async function checkAndRefine(chatId: string, threadId?: string) {
 
   } catch (e) {
     console.error(`[Refiner Error] Error during checkAndRefine:`, e);
+  } finally {
+    activeRefinements.delete(lockKey);
   }
 }
 

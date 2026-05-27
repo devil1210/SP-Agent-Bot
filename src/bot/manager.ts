@@ -56,6 +56,10 @@ export class ManagedBotService {
     console.log(`[Manager] ✅ ${this.instances.size} bots gestionados iniciados.`);
   }
 
+  static getBotByToken(token: string): Bot | undefined {
+    return Array.from(this.instances.values()).find(b => b.token === token);
+  }
+
   /**
    * Iniciar una instancia individual de Bot
    */
@@ -71,13 +75,19 @@ export class ManagedBotService {
       // Aplicar misma lógica que el bot principal
       setupBotHandlers(bot);
 
-      // Iniciar (Long Polling)
-      // Nota: En producción con muchos bots, mejor usar Webhooks.
-      bot.start({
-        onStart: (botInfo) => {
-          console.log(`[Manager] 🚀 Bot gestionado activo: @${botInfo.username}`);
-        }
-      });
+      // Si hay webhook configurado globalmente, registrar el webhook en Telegram
+      if (config.webhookUrl) {
+        const webhookPath = `${config.webhookUrl}/bot/${botData.token}`;
+        await bot.api.setWebhook(webhookPath);
+        console.log(`[Manager] 🌐 Webhook configurado para @${botData.username}: ${webhookPath}`);
+      } else {
+        // De lo contrario, iniciar Long Polling
+        bot.start({
+          onStart: (botInfo) => {
+            console.log(`[Manager] 🚀 Bot gestionado activo (Long Polling): @${botInfo.username}`);
+          }
+        });
+      }
 
       this.instances.set(botData.id, bot);
     } catch (error: any) {
