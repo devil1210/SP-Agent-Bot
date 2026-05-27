@@ -10,5 +10,8 @@ RUN npm install
 # Copiar el resto del código
 COPY . .
 
-# Comando para ejecutar el bot directamente con tsx
+# Compilar TypeScript a JavaScript
+RUN npm run build
+
+# Comando para ejecutar el bot
 CMD ["npm", "run", "start"]
