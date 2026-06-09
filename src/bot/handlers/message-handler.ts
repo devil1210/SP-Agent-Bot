@@ -9,6 +9,11 @@ import { isAdmin, updateBotTag, notifyAdmin } from '../helpers.js';
  */
 const userMessageTimestamps = new Map<string, number[]>();
 
+/**
+ * Estructuras para protección de bucle Bot-a-Bot
+ */
+const botInteractionCount = new Map<string, { count: number; lastTime: number }>();
+
 function checkRateLimit(userId: string): boolean {
   const now = Date.now();
   const limitWindowMs = 10_000; // 10 segundos
@@ -76,8 +81,73 @@ function sanitizeTelegramHTML(text: string): string {
  * Configura el manejador central de mensajes para el bot
  */
 export function setupMessageHandler(bot: Bot) {
+  // Capturar consultas en Modo Invitado (Guest Mode - Bot API 10.0)
+  bot.use(async (ctx, next) => {
+    if ((ctx.update as any).guest_message) {
+      await handleGuestMessage(ctx);
+    } else {
+      await next();
+    }
+  });
+
   bot.on(['message:text', 'message:caption'], handleIncomingMessage);
   bot.on('edited_message', handleIncomingMessage);
+}
+
+/**
+ * Manejador de consultas en Modo Invitado (Guest Mode - Bot API 10.0)
+ */
+async function handleGuestMessage(ctx: any) {
+  const guestMsg = (ctx.update as any).guest_message;
+  if (!guestMsg) return;
+
+  const guestQueryId = guestMsg.guest_query_id;
+  if (!guestQueryId) {
+    console.warn("[Bot:Guest] ⚠️ Mensaje de invitado recibido pero sin guest_query_id.");
+    return;
+  }
+
+  const text = guestMsg.text || guestMsg.caption || "";
+  const userId = guestMsg.from?.id.toString() || "0";
+  const senderName = `${guestMsg.from?.first_name || "Usuario"} (Invitado, ID: ${userId})`;
+
+  console.log(`[Bot:Guest] 📥 De ${senderName} (QueryID: ${guestQueryId}): "${text.substring(0, 30)}..."`);
+
+  try {
+    // Procesar con el bucle IA de forma normal, forzando gemini-3.1-flash-lite
+    const result = await processUserMessage(
+      'guest', // ID de chat especial para invitados
+      userId,
+      text,
+      undefined, // Sin hilo para invitados
+      [], // Sin archivos adjuntos por ahora
+      guestMsg.message_id,
+      undefined,
+      false, // qIsAssistant
+      senderName,
+      false, // isAdmin
+      undefined, // personalidad (usa default)
+      'gemini-3.1-flash-lite' // Forzar Gemini 3.1 Flash Lite
+    );
+
+    const output = result?.output ?? '';
+    if (output) {
+      const safeOutput = sanitizeTelegramHTML(output);
+      console.log(`[Bot:Guest] 📤 Enviando respuesta a guest_query_id: ${guestQueryId}`);
+
+      await (ctx.api as any).answerGuestQuery(guestQueryId, {
+        type: 'article',
+        id: `guest_res_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        title: 'Respuesta de SP-Agent',
+        input_message_content: {
+          message_text: safeOutput,
+          parse_mode: 'HTML'
+        }
+      });
+    }
+  } catch (error) {
+    console.error(`[Guest Handler Error]`, error);
+  }
 }
 
 /**
@@ -114,6 +184,31 @@ async function handleIncomingMessage(ctx: Context) {
   if (!isSAdmin && !checkRateLimit(userId)) {
     console.warn(`[Bot] ⚠️ Rate limit superado para el usuario ${userId}`);
     return;
+  }
+
+  // --- PROTECCIÓN DE BUCLE BOT-A-BOT ---
+  const isSenderBot = ctx.from?.is_bot || false;
+  const loopKey = `bot_loop:${chatId}:${threadId || 'general'}`;
+  
+  if (isSenderBot) {
+    const now = Date.now();
+    const currentLoop = botInteractionCount.get(loopKey) || { count: 0, lastTime: 0 };
+    
+    // Si la última interacción de bot fue hace menos de 60 segundos, es un bucle continuo
+    if (now - currentLoop.lastTime < 60_000) {
+      const newCount = currentLoop.count + 1;
+      if (newCount > 3) {
+        console.warn(`[Bot:LoopProtection] 🤐 Bucle bot-a-bot detectado en chat ${chatId} (${newCount} interacciones). Ignorando mensaje.`);
+        return;
+      }
+      botInteractionCount.set(loopKey, { count: newCount, lastTime: now });
+    } else {
+      // Reiniciar contador si ha pasado tiempo
+      botInteractionCount.set(loopKey, { count: 1, lastTime: now });
+    }
+  } else {
+    // Si escribe un humano, se rompe el bucle de bots
+    botInteractionCount.set(loopKey, { count: 0, lastTime: Date.now() });
   }
 
   // Obtener configuración del bot
