@@ -3,8 +3,6 @@ services:
     build: .
     container_name: sp-agent
     restart: always
-    env_file:
-      - .env
     logging:
       driver: "json-file"
       options:
