@@ -88,5 +88,35 @@ export const agentSkills = {
         return { output: `❌ Errores TypeScript detectados:\n${e.stdout || e.message}`, success: false };
       }
     }
+  },
+
+  run_proxmox_command: {
+    name: 'run_proxmox_command',
+    description: 'Ejecuta un comando directamente en el host Proxmox (ej: pct list, qm list, pct start <vmid>). Solo para administradores.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { 
+          type: 'string', 
+          description: 'El comando de Proxmox a ejecutar (ej: "pct list", "qm list", "pct status 100", "pct start 100", "free -h")' 
+        }
+      },
+      required: ['command']
+    },
+    execute: async (args: { command: string }, context: ToolContext) => {
+      if (!config.enableProxmoxControl) {
+        return { output: "Error: La función de control de Proxmox no está habilitada en esta instancia del bot.", success: false };
+      }
+      if (!context.isAdmin) return { output: "Error: No autorizado.", success: false };
+      try {
+        // Sanitizar y estructurar el comando SSH
+        const sshCommand = `ssh -o StrictHostKeyChecking=no root@${config.proxmoxHost} "${args.command.replace(/"/g, '\\"')}"`;
+        const { stdout, stderr } = await execPromise(sshCommand);
+        const output = stdout + (stderr ? `\nStderr:\n${stderr}` : '');
+        return { output: output || "Comando ejecutado con éxito sin salida de texto.", success: true };
+      } catch (e: any) {
+        return { output: `❌ Error al ejecutar en Proxmox: ${e.message}`, success: false };
+      }
+    }
   }
 };

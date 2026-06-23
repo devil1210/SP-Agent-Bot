@@ -14,6 +14,8 @@ export const config = {
   tavilyApiKey: process.env.TAVILY_API_KEY || '',
   projectsRootPath: process.env.PROJECTS_ROOT_PATH || 'projects',
   codingAgentApiKey: process.env.CODING_AGENT_API_KEY || '',
+  proxmoxHost: process.env.PROXMOX_HOST || '192.168.1.254',
+  enableProxmoxControl: process.env.ENABLE_PROXMOX_CONTROL === 'true',
   // 🌉 Puente Zeepub-bot (MCP)
   zeepubApiUrl: process.env.ZEEPUB_API_URL || 'http://localhost:8000',
   zeepubApiKey: process.env.ZEEPUB_API_KEY || '',
