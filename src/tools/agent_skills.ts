@@ -110,7 +110,7 @@ export const agentSkills = {
       if (!context.isAdmin) return { output: "Error: No autorizado.", success: false };
       try {
         // Sanitizar y estructurar el comando SSH
-        const sshCommand = `ssh -o StrictHostKeyChecking=no root@${config.proxmoxHost} "${args.command.replace(/"/g, '\\"')}"`;
+        const sshCommand = `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${config.proxmoxHost} "${args.command.replace(/"/g, '\\"')}"`;
         const { stdout, stderr } = await execPromise(sshCommand);
         const output = stdout + (stderr ? `\nStderr:\n${stderr}` : '');
         return { output: output || "Comando ejecutado con éxito sin salida de texto.", success: true };
