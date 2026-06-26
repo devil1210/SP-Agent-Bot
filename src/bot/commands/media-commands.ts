@@ -25,11 +25,19 @@ function runMediaProcessor(args: string[]): Promise<any> {
       let parsedJson: any = null;
       try {
         const trimmed = stdout.trim();
+        // Find the last '}' and walk backwards to find its matching '{'
         const lastCurly = trimmed.lastIndexOf('}');
-        const firstCurly = trimmed.lastIndexOf('{', lastCurly);
-        if (firstCurly !== -1 && lastCurly !== -1) {
-          const jsonCandidate = trimmed.substring(firstCurly, lastCurly + 1);
-          parsedJson = JSON.parse(jsonCandidate);
+        if (lastCurly !== -1) {
+          let depth = 0;
+          let startIdx = -1;
+          for (let i = lastCurly; i >= 0; i--) {
+            if (trimmed[i] === '}') depth++;
+            else if (trimmed[i] === '{') depth--;
+            if (depth === 0) { startIdx = i; break; }
+          }
+          if (startIdx !== -1) {
+            parsedJson = JSON.parse(trimmed.substring(startIdx, lastCurly + 1));
+          }
         } else if (trimmed) {
           parsedJson = JSON.parse(trimmed);
         }

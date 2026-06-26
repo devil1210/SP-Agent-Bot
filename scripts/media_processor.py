@@ -158,6 +158,8 @@ class MediaProcessor:
             }],
             'outtmpl': out_template,
             'quiet': True,
+            'noprogress': True,
+            'no_warnings': True,
             'extract_flat': False
         }
 
