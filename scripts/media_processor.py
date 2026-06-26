@@ -141,10 +141,18 @@ class MediaProcessor:
         os.makedirs(TEMP_DIR, exist_ok=True)
         out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
 
+        node_path = shutil.which('node')
+        if not node_path and os.path.exists('/usr/local/bin/node'):
+            node_path = '/usr/local/bin/node'
+        elif not node_path and os.path.exists('/usr/bin/node'):
+            node_path = '/usr/bin/node'
+
+        js_runtimes = {'node': {'path': node_path}} if node_path else {}
+
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'format_sort': ['acodec:aac'],           # Prioriza AAC nativo para evitar transcodificación
-            'js_runtimes': {'node': {}},             # Fuerza a yt-dlp a usar Node.js para descifrado de firmas
+            'js_runtimes': js_runtimes,              # Fuerza a yt-dlp a usar Node.js para descifrado de firmas
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',

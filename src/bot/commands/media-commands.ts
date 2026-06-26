@@ -24,8 +24,14 @@ function runMediaProcessor(args: string[]): Promise<any> {
     proc.on('close', (code) => {
       let parsedJson: any = null;
       try {
-        if (stdout.trim()) {
-          parsedJson = JSON.parse(stdout.trim());
+        const trimmed = stdout.trim();
+        const lastCurly = trimmed.lastIndexOf('}');
+        const firstCurly = trimmed.lastIndexOf('{', lastCurly);
+        if (firstCurly !== -1 && lastCurly !== -1) {
+          const jsonCandidate = trimmed.substring(firstCurly, lastCurly + 1);
+          parsedJson = JSON.parse(jsonCandidate);
+        } else if (trimmed) {
+          parsedJson = JSON.parse(trimmed);
         }
       } catch (e) {
         // Ignorar si no es JSON válido
@@ -34,7 +40,7 @@ function runMediaProcessor(args: string[]): Promise<any> {
       if (parsedJson && parsedJson.success === false) {
         reject(new Error(parsedJson.error || 'Error desconocido del procesador de medios'));
       } else if (code !== 0) {
-        const maxStderrLen = 500;
+        const maxStderrLen = 3000;
         const truncatedStderr = stderr.length > maxStderrLen 
           ? stderr.substring(0, maxStderrLen) + '\n[Stderr truncado...]' 
           : stderr;
