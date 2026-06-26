@@ -144,6 +144,7 @@ class MediaProcessor:
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'format_sort': ['acodec:aac'],           # Prioriza AAC nativo para evitar transcodificación
+            'js_runtimes': ['node'],                 # Fuerza a yt-dlp a usar Node.js para descifrado de firmas
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',

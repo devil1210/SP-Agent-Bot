@@ -22,14 +22,28 @@ function runMediaProcessor(args: string[]): Promise<any> {
     });
 
     proc.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(`Python process exited with code ${code}. Stderr: ${stderr}`));
+      let parsedJson: any = null;
+      try {
+        if (stdout.trim()) {
+          parsedJson = JSON.parse(stdout.trim());
+        }
+      } catch (e) {
+        // Ignorar si no es JSON válido
+      }
+
+      if (parsedJson && parsedJson.success === false) {
+        reject(new Error(parsedJson.error || 'Error desconocido del procesador de medios'));
+      } else if (code !== 0) {
+        const maxStderrLen = 500;
+        const truncatedStderr = stderr.length > maxStderrLen 
+          ? stderr.substring(0, maxStderrLen) + '\n[Stderr truncado...]' 
+          : stderr;
+        reject(new Error(`Python process exited with code ${code}. Stderr: ${truncatedStderr}`));
       } else {
-        try {
-          const parsed = JSON.parse(stdout.trim());
-          resolve(parsed);
-        } catch (e) {
-          reject(new Error(`Failed to parse Python output as JSON: ${stdout}. Error: ${e}`));
+        if (parsedJson) {
+          resolve(parsedJson);
+        } else {
+          reject(new Error(`Failed to parse Python output as JSON: ${stdout}`));
         }
       }
     });
@@ -102,7 +116,8 @@ export function registerMediaCommands(bot: Bot) {
       });
     } catch (e: any) {
       console.error(`[MediaProcessor Error]`, e);
-      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `❌ Error al procesar el audio: ${e.message}`);
+      const safeErrorMsg = `❌ Error al procesar el audio: ${e.message}`.substring(0, 3500);
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, safeErrorMsg);
     }
   });
 
@@ -164,9 +179,10 @@ export function registerMediaCommands(bot: Bot) {
       });
     } catch (e: any) {
       console.error(`[MediaProcessor Fix Error]`, e);
+      const safeErrorMsg = `❌ Error al escanear archivo: ${e.message}`.substring(0, 3500);
       await ctx.api.editMessageText(
         ctx.chat.id, msg.message_id,
-        `❌ Error al escanear archivo: ${e.message}`
+        safeErrorMsg
       );
     }
   });
@@ -216,7 +232,8 @@ export function registerMediaCommands(bot: Bot) {
       });
     } catch (e: any) {
       console.error(`[MediaProcessor Error]`, e);
-      await ctx.editMessageText(`❌ Ocurrió un error escribiendo en el almacenamiento: ${e.message}`);
+      const safeErrorMsg = `❌ Ocurrió un error escribiendo en el almacenamiento: ${e.message}`.substring(0, 3500);
+      await ctx.editMessageText(safeErrorMsg);
     }
   });
 }

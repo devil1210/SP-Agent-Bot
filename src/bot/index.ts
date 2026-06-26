@@ -107,6 +107,13 @@ export function setupBotHandlers(bot: Bot) {
   import('./handlers/message-handler.js').then(({ setupMessageHandler }) => {
     setupMessageHandler(bot);
   });
+
+  /**
+   * Manejador central de errores para evitar que el bot se detenga ante excepciones no controladas
+   */
+  bot.catch((err) => {
+    console.error(`[Bot Central Error] Error en el middleware al procesar la actualización ${err.ctx.update.update_id}:`, err.error);
+  });
 }
 
 // Aplicar a bot principal
