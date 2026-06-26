@@ -8,6 +8,7 @@ import { memoryTools } from './memory-tools.js';
 import { zeepubBridgeTools } from './zeepub-bridge-tool.js';
 import { registry } from './registry.js';
 import { botManagerTools } from './bot-manager-tools.js';
+import { config } from '../config.js';
 
 /**
  * 🛠️ CENTRAL TOOL INDEX — Refactorizado (Mejora #8)
@@ -36,9 +37,16 @@ registry.register(searchTools);
 registry.register(messageTools);
 registry.register(memoryTools);
 registry.register(orchestratorTools);
-registry.register(agentSkills);
 registry.register(zeepubBridgeTools);
 registry.register(botManagerTools);
+
+if (config.enableProxmoxControl) {
+  registry.register(agentSkills);
+} else {
+  const filteredSkills = { ...agentSkills };
+  delete (filteredSkills as any).run_proxmox_command;
+  registry.register(filteredSkills);
+}
 
 // Re-exportar definiciones para el LLM (ahora a través del registry)
 export const getToolsDefinition = (filter?: (name: string) => boolean) => {

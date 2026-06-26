@@ -1,25 +1,39 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+const cleanEnvVar = (val: string | undefined): string => {
+  if (!val) return '';
+  let clean = val.trim();
+  if (clean.startsWith('"') && clean.endsWith('"')) {
+    clean = clean.slice(1, -1);
+  }
+  if (clean.startsWith("'") && clean.endsWith("'")) {
+    clean = clean.slice(1, -1);
+  }
+  return clean.trim();
+};
+
 export const config = {
-  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
-  telegramAllowedUserIds: (process.env.TELEGRAM_ALLOWED_USER_IDS || '').split(',').map(id => id.trim()),
-  geminiApiKey: process.env.GEMINI_API_KEY || '',
-  openRouterApiKey: process.env.OPENROUTER_API_KEY || '',
-  openRouterModel: process.env.OPENROUTER_MODEL || 'openrouter/free',
-  groqApiKey: process.env.GROQ_API_KEY || '',
-  groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-  postgrestUrl: process.env.POSTGREST_URL || 'http://localhost:3000',
-  postgrestAnonKey: process.env.POSTGREST_ANON_KEY || '',
-  tavilyApiKey: process.env.TAVILY_API_KEY || '',
-  projectsRootPath: process.env.PROJECTS_ROOT_PATH || 'projects',
-  codingAgentApiKey: process.env.CODING_AGENT_API_KEY || '',
+  telegramBotToken: cleanEnvVar(process.env.TELEGRAM_BOT_TOKEN),
+  telegramAllowedUserIds: cleanEnvVar(process.env.TELEGRAM_ALLOWED_USER_IDS).split(',').map(id => id.trim()),
+  geminiApiKey: cleanEnvVar(process.env.GEMINI_API_KEY),
+  openRouterApiKey: cleanEnvVar(process.env.OPENROUTER_API_KEY),
+  openRouterModel: cleanEnvVar(process.env.OPENROUTER_MODEL) || 'openrouter/free',
+  groqApiKey: cleanEnvVar(process.env.GROQ_API_KEY),
+  groqModel: cleanEnvVar(process.env.GROQ_MODEL) || 'llama-3.3-70b-versatile',
+  postgrestUrl: cleanEnvVar(process.env.POSTGREST_URL) || 'http://localhost:3000',
+  postgrestAnonKey: cleanEnvVar(process.env.POSTGREST_ANON_KEY),
+  tavilyApiKey: cleanEnvVar(process.env.TAVILY_API_KEY),
+  projectsRootPath: cleanEnvVar(process.env.PROJECTS_ROOT_PATH) || 'projects',
+  codingAgentApiKey: cleanEnvVar(process.env.CODING_AGENT_API_KEY),
+  proxmoxHost: cleanEnvVar(process.env.PROXMOX_HOST) || '192.168.1.254',
+  enableProxmoxControl: cleanEnvVar(process.env.ENABLE_PROXMOX_CONTROL) === 'true',
   // 🌉 Puente Zeepub-bot (MCP)
-  zeepubApiUrl: process.env.ZEEPUB_API_URL || 'http://localhost:8000',
-  zeepubApiKey: process.env.ZEEPUB_API_KEY || '',
+  zeepubApiUrl: cleanEnvVar(process.env.ZEEPUB_API_URL) || 'http://localhost:8000',
+  zeepubApiKey: cleanEnvVar(process.env.ZEEPUB_API_KEY),
   // 🌐 Webhooks opcionales para producción
-  webhookUrl: process.env.WEBHOOK_URL || '',
-  port: parseInt(process.env.PORT || '8080'),
+  webhookUrl: cleanEnvVar(process.env.WEBHOOK_URL),
+  port: parseInt(cleanEnvVar(process.env.PORT) || '8080'),
 };
 
 // Validar reglas críticas de env
