@@ -55,7 +55,7 @@ def clean_and_romaji(text: str) -> str:
     if not text:
         return text
     result = kks.convert(text)
-    romaji_text = " ".join([item['romaji'].capitalize() for item in result])
+    romaji_text = " ".join([item.get('hepburn', item.get('orig', '')).capitalize() for item in result])
     return romaji_text if romaji_text.strip() else text
 
 def download_artwork(url: str, task_id: str) -> str:
