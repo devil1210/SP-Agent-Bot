@@ -13,6 +13,13 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT, APIC
 from mutagen.mp4 import MP4, MP4Cover
 
+# Configurar yt-dlp para usar Node.js como runtime JS (node:20-slim ya tiene node en PATH)
+# Esto evita el error "No supported JavaScript runtime could be found"
+_ytdlp_config_dir = os.path.expanduser('~/.config/yt-dlp')
+os.makedirs(_ytdlp_config_dir, exist_ok=True)
+with open(os.path.join(_ytdlp_config_dir, 'config'), 'w') as _f:
+    _f.write('--js-runtimes node\n')
+
 # =========================================================================
 # CONFIGURACIÓN GENERAL Y CONSTANTES
 # =========================================================================
