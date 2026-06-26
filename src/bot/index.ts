@@ -6,6 +6,7 @@ import { registerConfigCommands } from './commands/config-commands.js';
 import { registerPersonalityCommands } from './commands/personality-commands.js';
 import { registerGroupCommands, registerUserCommands } from './commands/group-commands.js';
 import { registerMiscCommands } from './commands/misc-commands.js';
+import { registerMediaCommands } from './commands/media-commands.js';
 import { setThreadName } from '../db/settings.js';
 
 export const bot = new Bot(config.telegramBotToken);
@@ -29,7 +30,8 @@ async function setBotCommands() {
     { command: 'revokeuser', description: 'Revocar usuario (ID)' },
     { command: 'users', description: 'Lista de usuarios autorizados' },
     { command: 'autofix', description: 'Activa/Desactiva auto-corrección de Twitter' },
-    { command: 'config', description: 'Configurar parámetros de personalidad (0-100)' }
+    { command: 'config', description: 'Configurar parámetros de personalidad (0-100)' },
+    { command: 'playlist', description: 'Descarga y organiza canciones en tu biblioteca' }
   ];
 
   try {
@@ -81,6 +83,7 @@ export function setupBotHandlers(bot: Bot) {
   registerGroupCommands(bot);
   registerUserCommands(bot);
   registerMiscCommands(bot);
+  registerMediaCommands(bot);
 
   /**
    * Manejadores de eventos de hilos
