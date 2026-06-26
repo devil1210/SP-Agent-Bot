@@ -84,10 +84,14 @@ export function registerMediaCommands(bot: Bot) {
       }
 
       const lyricsStatus = metadata.lyrics ? "✅ Localizada" : "❌ No encontrada";
-      const replyText = `🎵 <b>Análisis de Pista Exitoso</b>\n` +
+      const artworkStatus = metadata.artwork_path ? "✅ HD Lista" : "❌ No encontrada";
+      const fileExt = metadata.filepath?.split('.').pop()?.toUpperCase() || 'M4A';
+      const formatLabel = fileExt === 'M4A' ? 'M4A Nativo' : fileExt;
+      const replyText = `🎵 <b>Análisis de Pista Exitoso (${formatLabel})</b>\n` +
         `👤 <b>Artista:</b> ${metadata.artist}\n` +
         `💿 <b>Track:</b> ${metadata.title}\n` +
         `📀 <b>Álbum:</b> ${metadata.album}\n` +
+        `🖼️ <b>Carátula:</b> ${artworkStatus}\n` +
         `📝 <b>Letras:</b> ${lyricsStatus}\n\n` +
         `🧠 <b>Carpeta Destino Sugerida:</b> <code>${metadata.genre}</code>\n\n` +
         `Por favor selecciona una categoría para archivar en tu servidor:`;
@@ -99,6 +103,71 @@ export function registerMediaCommands(bot: Bot) {
     } catch (e: any) {
       console.error(`[MediaProcessor Error]`, e);
       await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `❌ Error al procesar el audio: ${e.message}`);
+    }
+  });
+
+  // =========================================================================
+  // COMANDO /fix - Escanear y corregir archivos locales del servidor
+  // =========================================================================
+  bot.command('fix', isAdminMiddleware, async (ctx) => {
+    const localPath = ctx.match.trim();
+    if (!localPath) {
+      return await ctx.reply(
+        "💡 <b>Uso:</b> <code>/fix /ruta/al/archivo.mp3</code>\n" +
+        "Escanea un archivo local y le inyecta metadatos, letras y carátula.",
+        { parse_mode: 'HTML' }
+      );
+    }
+
+    const taskId = `fix_${ctx.message?.message_id}`;
+    if (!taskId) return;
+
+    const msg = await ctx.reply(
+      "🔍 Analizando archivo local y consultando bases de datos...",
+      { message_thread_id: ctx.message?.message_thread_id }
+    );
+
+    try {
+      const result = await runMediaProcessor(['fix', localPath, taskId]);
+      if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
+      }
+
+      const metadata = result.metadata;
+      pendingTasks.set(taskId, metadata);
+
+      // Build keyboard
+      const keyboard = new InlineKeyboard();
+      keyboard.text(`✅ Confirmar sugerido: ${metadata.genre}`, `confirm_${taskId}`).row();
+      for (const genreKey of GENRE_MAPPING_KEYS) {
+        keyboard.text(`📁 ${genreKey}`, `set_${taskId}_${genreKey}`).row();
+      }
+
+      const lyricsStatus = metadata.lyrics ? "✅ Localizada" : "❌ No encontrada";
+      const artworkStatus = metadata.artwork_path ? "✅ HD Lista" : "❌ No encontrada";
+      const fileExt = localPath.split('.').pop()?.toUpperCase() || '???';
+
+      const replyText = `🛠️ <b>Corrección de Archivo Local</b>\n` +
+        `📝 <b>Ruta:</b> <code>${localPath}</code>\n` +
+        `🎧 <b>Formato:</b> ${fileExt}\n\n` +
+        `👤 <b>Artista Encontrado:</b> ${metadata.artist}\n` +
+        `💿 <b>Track Encontrado:</b> ${metadata.title}\n` +
+        `📀 <b>Álbum:</b> ${metadata.album}\n` +
+        `🖼️ <b>Carátula:</b> ${artworkStatus}\n` +
+        `📝 <b>Letras:</b> ${lyricsStatus}\n\n` +
+        `🧠 <b>Destino sugerido:</b> <code>${metadata.genre}</code>\n\n` +
+        `Selecciona el destino para corregir etiquetas y mover dentro de Navidrome.`;
+
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, replyText, {
+        reply_markup: keyboard,
+        parse_mode: 'HTML'
+      });
+    } catch (e: any) {
+      console.error(`[MediaProcessor Fix Error]`, e);
+      await ctx.api.editMessageText(
+        ctx.chat.id, msg.message_id,
+        `❌ Error al escanear archivo: ${e.message}`
+      );
     }
   });
 

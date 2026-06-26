@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import shutil
+import glob
 import logging
 import requests
 import pykakasi
@@ -9,7 +10,8 @@ from typing import Dict, Any, List
 import yt_dlp
 import musicbrainzngs
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT, APIC
+from mutagen.mp4 import MP4, MP4Cover
 
 # =========================================================================
 # CONFIGURACIÓN GENERAL Y CONSTANTES
@@ -18,7 +20,6 @@ MUSICBRAINZ_APP = "SP-Agent"
 MUSICBRAINZ_VERSION = "1.2"
 MUSICBRAINZ_CONTACT = "admin@tu-dominio.com"
 
-# Read path locations from env with fallbacks
 TEMP_DIR = os.getenv("TEMP_DIR", "/tmp/sp-agent/downloads")
 _music_dir = os.getenv("MUSIC_DIR", "/media/music")
 
@@ -50,6 +51,22 @@ def clean_and_romaji(text: str) -> str:
     romaji_text = " ".join([item['romaji'].capitalize() for item in result])
     return romaji_text if romaji_text.strip() else text
 
+def download_artwork(url: str, task_id: str) -> str:
+    """Descarga la carátula oficial en alta resolución y la guarda temporalmente."""
+    if not url:
+        return ""
+    try:
+        res = requests.get(url, timeout=5)
+        if res.status_code == 200:
+            os.makedirs(TEMP_DIR, exist_ok=True)
+            artwork_path = os.path.join(TEMP_DIR, f"{task_id}_cover.jpg")
+            with open(artwork_path, "wb") as f:
+                f.write(res.content)
+            return artwork_path
+    except Exception as e:
+        logger.error(f"Error descargando carátula: {e}")
+    return ""
+
 def fetch_from_itunes(artist: str, title: str) -> dict:
     """Busca en iTunes API para alta precisión en lanzamientos actuales."""
     try:
@@ -58,11 +75,13 @@ def fetch_from_itunes(artist: str, title: str) -> dict:
         response = requests.get(url, timeout=5)
         if response.status_code == 200 and response.json().get('resultCount', 0) > 0:
             track = response.json()['results'][0]
+            artwork_url = track.get('artworkUrl100', '').replace('100x100bb.jpg', '600x600bb.jpg')
             return {
                 "genre": track.get('primaryGenreName', '').lower(),
                 "album": track.get('collectionName', ''),
                 "artist": track.get('artistName', ''),
-                "title": track.get('trackName', '')
+                "title": track.get('trackName', ''),
+                "artwork_url": artwork_url
             }
     except Exception as e:
         logger.error(f"Error en iTunes API: {e}")
@@ -80,16 +99,20 @@ def fetch_from_deezer(artist: str, title: str) -> dict:
                 track = data[0]
                 album_id = track.get('album', {}).get('id')
                 genre_name = ""
+                artwork_url = track.get('album', {}).get('cover_xl', '')
                 if album_id:
                     album_res = requests.get(f"https://api.deezer.com/album/{album_id}", timeout=3).json()
                     genres = album_res.get('genres', {}).get('data', [])
                     if genres:
                         genre_name = genres[0].get('name', '').lower()
+                    if not artwork_url:
+                        artwork_url = album_res.get('cover_xl', '')
                 return {
                     "genre": genre_name,
                     "album": track.get('album', {}).get('title', ''),
                     "artist": track.get('artist', {}).get('name', ''),
-                    "title": track.get('title', '')
+                    "title": track.get('title', ''),
+                    "artwork_url": artwork_url
                 }
     except Exception as e:
         logger.error(f"Error en Deezer API: {e}")
@@ -114,16 +137,17 @@ def fetch_lyrics_from_lrclib(artist: str, title: str) -> str:
 class MediaProcessor:
     @staticmethod
     def download_audio(url: str, task_id: str) -> dict:
-        """Descarga el audio desde YouTube, extrae tags nativos y aplica Romaji."""
+        """Descarga el audio nativo M4A a máxima calidad desde YouTube, extrae tags nativos y aplica Romaji."""
         os.makedirs(TEMP_DIR, exist_ok=True)
         out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
 
         ydl_opts = {
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'format_sort': ['acodec:aac'],           # Prioriza AAC nativo para evitar transcodificación
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '320',
+                'preferredcodec': 'm4a',
+                'preferredquality': '0',              # Máxima calidad si necesita transcodificar
             }],
             'outtmpl': out_template,
             'quiet': True,
@@ -132,7 +156,18 @@ class MediaProcessor:
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info).replace('.webm', '.mp3').replace('.m4a', '.mp3')
+
+            # Localizar el archivo real post-procesado (la extensión puede cambiar)
+            pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+            candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+            if candidates:
+                filename = candidates[0]
+            else:
+                filename = ydl.prepare_filename(info)
+                # Fallback: corregir extensión si fue convertido de webm
+                base, ext = os.path.splitext(filename)
+                if ext != '.m4a' and os.path.exists(base + '.m4a'):
+                    filename = base + '.m4a'
 
             yt_artist = info.get('artist') or info.get('uploader') or 'Unknown Artist'
             yt_title = info.get('track') or info.get('title') or 'Unknown Title'
@@ -163,6 +198,8 @@ class MediaProcessor:
             metadata['artist'] = clean_and_romaji(itunes['artist'])
             metadata['title'] = clean_and_romaji(itunes['title'])
             metadata['album'] = clean_and_romaji(itunes['album'])
+            if itunes.get('artwork_url'):
+                metadata['artwork_url'] = itunes['artwork_url']
         
         # 2. Intentar Deezer
         else:
@@ -173,6 +210,8 @@ class MediaProcessor:
                 metadata['artist'] = clean_and_romaji(deezer['artist'])
                 metadata['title'] = clean_and_romaji(deezer['title'])
                 metadata['album'] = clean_and_romaji(deezer['album'])
+            if deezer.get('artwork_url'):
+                metadata['artwork_url'] = deezer['artwork_url']
 
         # 3. Respaldo MusicBrainz
         if len(genres_found) <= len(metadata['raw_tags']):
@@ -196,25 +235,62 @@ class MediaProcessor:
 
     @staticmethod
     def write_id3_tags(filepath: str, metadata: dict):
-        """Inyecta los metadatos finales y las letras en el contenedor MP3."""
+        """Inyecta los metadatos finales, letras y carátula en el contenedor MP3 o M4A."""
+        ext = filepath.split('.')[-1].lower()
+        artwork_bytes = b""
+        if metadata.get('artwork_path') and os.path.exists(metadata['artwork_path']):
+            try:
+                with open(metadata['artwork_path'], "rb") as f:
+                    artwork_bytes = f.read()
+            except Exception as e:
+                logger.error(f"Error leyendo carátula de {metadata['artwork_path']}: {e}")
+
         try:
-            audio = MP3(filepath, ID3=ID3)
-            if audio.tags is None:
-                audio.add_tags()
-            audio.tags.add(TIT2(encoding=3, text=metadata['title']))
-            audio.tags.add(TPE1(encoding=3, text=metadata['artist']))
-            audio.tags.add(TALB(encoding=3, text=metadata['album']))
-            audio.tags.add(TCON(encoding=3, text=metadata['genre']))
-            
-            # Format track number
-            track_num = str(metadata.get('track_number', '1'))
-            audio.tags.add(TRCK(encoding=3, text=track_num))
-            
-            if metadata.get('lyrics'):
-                audio.tags.add(USLT(encoding=3, lang='eng', desc='Lyrics', text=metadata['lyrics']))
-            audio.save()
+            if ext == "m4a":
+                audio = MP4(filepath)
+                audio["\xa9nam"] = metadata['title']
+                audio["\xa9ART"] = metadata['artist']
+                audio["\xa9alb"] = metadata['album']
+                audio["\xa9gen"] = metadata['genre']
+                
+                track_val = metadata.get('track_number', '1')
+                try:
+                    audio["trkn"] = [(int(track_val), 0)]
+                except:
+                    audio["trkn"] = [(1, 0)]
+                
+                if metadata.get('lyrics'):
+                    audio["\xa9lyr"] = metadata['lyrics']
+                
+                if artwork_bytes:
+                    audio["covr"] = [MP4Cover(artwork_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
+                
+                audio.save()
+
+            elif ext == "mp3":
+                audio = MP3(filepath, ID3=ID3)
+                if audio.tags is None:
+                    audio.add_tags()
+                audio.tags.add(TIT2(encoding=3, text=metadata['title']))
+                audio.tags.add(TPE1(encoding=3, text=metadata['artist']))
+                audio.tags.add(TALB(encoding=3, text=metadata['album']))
+                audio.tags.add(TCON(encoding=3, text=metadata['genre']))
+                audio.tags.add(TRCK(encoding=3, text=str(metadata.get('track_number', '1'))))
+                
+                if metadata.get('lyrics'):
+                    audio.tags.add(USLT(encoding=3, lang='eng', desc='Lyrics', text=metadata['lyrics']))
+                
+                if artwork_bytes:
+                    audio.tags.add(APIC(
+                        encoding=3,
+                        mime='image/jpeg',
+                        type=3,
+                        desc='Front Cover',
+                        data=artwork_bytes
+                    ))
+                audio.save()
         except Exception as e:
-            logger.error(f"Error escribiendo tags: {e}")
+            logger.error(f"Error escribiendo tags ({ext}): {e}")
             raise e
 
     @staticmethod
@@ -224,11 +300,10 @@ class MediaProcessor:
         album = metadata['album'].replace('/', '_').replace(':', '-')
         title = metadata['title'].replace('/', '_').replace(':', '-')
         
-        # Safe track number conversion
         track_val = metadata.get('track_number', '1')
         try:
             track_no = f"{int(track_val):02d}"
-        except (ValueError, TypeError):
+        except:
             track_no = str(track_val)
 
         ext = filepath.split('.')[-1]
@@ -277,6 +352,74 @@ if __name__ == "__main__":
             lyrics = fetch_lyrics_from_lrclib(metadata['artist'], metadata['title'])
             metadata['lyrics'] = lyrics
             
+            # Download cover
+            if metadata.get('artwork_url'):
+                art_path = download_artwork(metadata['artwork_url'], task_id)
+                if art_path:
+                    metadata['artwork_path'] = art_path
+            
+            print(json.dumps({"success": True, "metadata": metadata}))
+        except Exception as e:
+            print(json.dumps({"success": False, "error": str(e)}))
+            sys.exit(1)
+            
+    elif action == "fix":
+        if len(sys.argv) < 4:
+            print(json.dumps({"success": False, "error": "Missing Local Path or Task ID"}))
+            sys.exit(1)
+        local_path = sys.argv[2]
+        task_id = sys.argv[3]
+        
+        if not os.path.exists(local_path):
+            print(json.dumps({"success": False, "error": f"File path does not exist: {local_path}"}))
+            sys.exit(1)
+            
+        try:
+            ext = local_path.split('.')[-1].lower()
+            current_artist = "Unknown"
+            current_title = "Unknown"
+            current_album = "Unknown"
+
+            if ext == "mp3":
+                try:
+                    audio = MP3(local_path, ID3=ID3)
+                    current_artist = str(audio.tags.get('TPE1', 'Unknown'))
+                    current_title = str(audio.tags.get('TIT2', 'Unknown'))
+                    current_album = str(audio.tags.get('TALB', 'Unknown'))
+                except:
+                    pass
+            elif ext == "m4a":
+                try:
+                    audio = MP4(local_path)
+                    current_artist = audio.get('\xa9ART', ['Unknown'])[0]
+                    current_title = audio.get('\xa9nam', ['Unknown'])[0]
+                    current_album = audio.get('\xa9alb', ['Unknown'])[0]
+                except:
+                    pass
+
+            if current_title == "Unknown":
+                current_title = os.path.basename(local_path).replace(f".{ext}", "")
+
+            metadata = {
+                "filepath": local_path,
+                "title": clean_and_romaji(current_title),
+                "artist": clean_and_romaji(current_artist),
+                "album": clean_and_romaji(current_album),
+                "track_number": "1",
+                "raw_tags": []
+            }
+
+            suggested_genre = MediaProcessor.fetch_genre_multi_provider(metadata)
+            metadata['genre'] = suggested_genre
+            
+            lyrics = fetch_lyrics_from_lrclib(metadata['artist'], metadata['title'])
+            metadata['lyrics'] = lyrics
+            
+            if metadata.get('artwork_url'):
+                art_path = download_artwork(metadata['artwork_url'], task_id)
+                if art_path:
+                    metadata['artwork_path'] = art_path
+                    
             print(json.dumps({"success": True, "metadata": metadata}))
         except Exception as e:
             print(json.dumps({"success": False, "error": str(e)}))
@@ -293,7 +436,13 @@ if __name__ == "__main__":
             MediaProcessor.write_id3_tags(filepath, metadata)
             final_path = MediaProcessor.move_to_library(filepath, metadata)
             
-            # Trigger Docker scan (runs non-blocking since it could fail if socket not mounted)
+            # Clean up temp files if they were downloaded
+            if metadata.get('artwork_path') and os.path.exists(metadata['artwork_path']):
+                try:
+                    os.remove(metadata['artwork_path'])
+                except:
+                    pass
+            
             try:
                 MediaProcessor.trigger_navidrome_scan()
             except Exception as e:

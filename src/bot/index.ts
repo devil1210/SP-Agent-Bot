@@ -31,7 +31,8 @@ async function setBotCommands() {
     { command: 'users', description: 'Lista de usuarios autorizados' },
     { command: 'autofix', description: 'Activa/Desactiva auto-corrección de Twitter' },
     { command: 'config', description: 'Configurar parámetros de personalidad (0-100)' },
-    { command: 'playlist', description: 'Descarga y organiza canciones en tu biblioteca' }
+    { command: 'playlist', description: 'Descarga y organiza canciones en tu biblioteca' },
+    { command: 'fix', description: 'Corrige metadatos de un archivo local del servidor' }
   ];
 
   try {
