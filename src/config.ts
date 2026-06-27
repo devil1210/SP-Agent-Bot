@@ -34,6 +34,7 @@ export const config = {
   // 🌐 Webhooks opcionales para producción
   webhookUrl: cleanEnvVar(process.env.WEBHOOK_URL),
   port: parseInt(cleanEnvVar(process.env.PORT) || '8080'),
+  cookiesPath: cleanEnvVar(process.env.COOKIES_PATH),
 };
 
 // Validar reglas críticas de env

@@ -10,7 +10,7 @@ from typing import Dict, Any, List
 import yt_dlp
 import musicbrainzngs
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT, APIC
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT, APIC, TDRC
 from mutagen.mp4 import MP4, MP4Cover
 
 # Configurar yt-dlp para usar Node.js como runtime JS (node:20-slim ya tiene node en PATH)
@@ -32,13 +32,13 @@ _music_dir = os.getenv("MUSIC_DIR", "/media/music")
 
 GENRE_MAPPING = {
     "J-Music": ["j-pop", "j-rock", "anime", "japanese", "vocaloid", "jpop", "jrock"],
-    "Música-Cumbias-y-Tropical": ["cumbia", "salsa", "merengue", "tropical", "bachata"],
-    "Música-Rancheras": ["ranchera", "mariachi", "regional mexicano", "corridos", "corrido"],
-    "Música-Reggaeton": ["reggaeton", "urbano", "perreo", "dembow", "latin pop"],
-    "Música-Rock": ["rock", "metal", "punk", "grunge", "indie", "alternative rock"],
-    "Música-HipHop": ["hip hop", "rap", "trap", "r&b"],
-    "Música-Electronica": ["electronic", "techno", "house", "edm", "dance", "trance"],
-    "Música-Pop": ["pop", "synthpop", "dance-pop", "ballad", "balada"]
+    "Cumbias-y-Tropical": ["cumbia", "salsa", "merengue", "tropical", "bachata"],
+    "Rancheras": ["ranchera", "mariachi", "regional mexicano", "corridos", "corrido"],
+    "Reggaeton": ["reggaeton", "urbano", "perreo", "dembow", "latin pop"],
+    "Rock": ["rock", "metal", "punk", "grunge", "indie", "alternative rock"],
+    "HipHop": ["hip hop", "rap", "trap", "r&b"],
+    "Electronica": ["electronic", "techno", "house", "edm", "dance", "trance"],
+    "Pop": ["pop", "synthpop", "dance-pop", "ballad", "balada"]
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -83,12 +83,16 @@ def fetch_from_itunes(artist: str, title: str) -> dict:
         if response.status_code == 200 and response.json().get('resultCount', 0) > 0:
             track = response.json()['results'][0]
             artwork_url = track.get('artworkUrl100', '').replace('100x100bb.jpg', '600x600bb.jpg')
+            year = ""
+            if track.get('releaseDate'):
+                year = track['releaseDate'][:4]
             return {
                 "genre": track.get('primaryGenreName', '').lower(),
                 "album": track.get('collectionName', ''),
                 "artist": track.get('artistName', ''),
                 "title": track.get('trackName', ''),
-                "artwork_url": artwork_url
+                "artwork_url": artwork_url,
+                "year": year
             }
     except Exception as e:
         logger.error(f"Error en iTunes API: {e}")
@@ -107,6 +111,7 @@ def fetch_from_deezer(artist: str, title: str) -> dict:
                 album_id = track.get('album', {}).get('id')
                 genre_name = ""
                 artwork_url = track.get('album', {}).get('cover_xl', '')
+                year = ""
                 if album_id:
                     album_res = requests.get(f"https://api.deezer.com/album/{album_id}", timeout=3).json()
                     genres = album_res.get('genres', {}).get('data', [])
@@ -114,12 +119,15 @@ def fetch_from_deezer(artist: str, title: str) -> dict:
                         genre_name = genres[0].get('name', '').lower()
                     if not artwork_url:
                         artwork_url = album_res.get('cover_xl', '')
+                    if album_res.get('release_date'):
+                        year = album_res['release_date'][:4]
                 return {
                     "genre": genre_name,
                     "album": track.get('album', {}).get('title', ''),
                     "artist": track.get('artist', {}).get('name', ''),
                     "title": track.get('title', ''),
-                    "artwork_url": artwork_url
+                    "artwork_url": artwork_url,
+                    "year": year
                 }
     except Exception as e:
         logger.error(f"Error en Deezer API: {e}")
@@ -149,12 +157,11 @@ class MediaProcessor:
         out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
 
         ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio/best',
-            'format_sort': ['acodec:aac'],           # Prioriza AAC nativo para evitar transcodificación
+            'format': 'bestaudio/best',  # Permite descargar cualquier formato de audio óptimo
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',
-                'preferredquality': '0',              # Máxima calidad si necesita transcodificar
+                'preferredquality': '0',
             }],
             'outtmpl': out_template,
             'quiet': True,
@@ -162,6 +169,9 @@ class MediaProcessor:
             'no_warnings': True,
             'extract_flat': False
         }
+        cookies_path = os.getenv("COOKIES_PATH")
+        if cookies_path and os.path.exists(cookies_path):
+            ydl_opts['cookiefile'] = cookies_path
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -209,6 +219,8 @@ class MediaProcessor:
             metadata['album'] = clean_and_romaji(itunes['album'])
             if itunes.get('artwork_url'):
                 metadata['artwork_url'] = itunes['artwork_url']
+            if itunes.get('year'):
+                metadata['year'] = itunes['year']
         
         # 2. Intentar Deezer
         else:
@@ -221,6 +233,8 @@ class MediaProcessor:
                 metadata['album'] = clean_and_romaji(deezer['album'])
             if deezer.get('artwork_url'):
                 metadata['artwork_url'] = deezer['artwork_url']
+            if deezer.get('year'):
+                metadata['year'] = deezer['year']
 
         # 3. Respaldo MusicBrainz
         if len(genres_found) <= len(metadata['raw_tags']):
@@ -271,6 +285,9 @@ class MediaProcessor:
                 if metadata.get('lyrics'):
                     audio["\xa9lyr"] = metadata['lyrics']
                 
+                if metadata.get('year'):
+                    audio["\xa9day"] = str(metadata['year'])
+                
                 if artwork_bytes:
                     audio["covr"] = [MP4Cover(artwork_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
                 
@@ -288,6 +305,9 @@ class MediaProcessor:
                 
                 if metadata.get('lyrics'):
                     audio.tags.add(USLT(encoding=3, lang='eng', desc='Lyrics', text=metadata['lyrics']))
+                
+                if metadata.get('year'):
+                    audio.tags.add(TDRC(encoding=3, text=str(metadata['year'])))
                 
                 if artwork_bytes:
                     audio.tags.add(APIC(
@@ -317,13 +337,16 @@ class MediaProcessor:
 
         ext = filepath.split('.')[-1]
 
+        year = metadata.get('year', '')
+        album_folder = f"{year} - {album}" if year else album
+
         if metadata.get('is_soundtrack'):
-            final_dir = os.path.join(_music_dir, "Soundtracks", album)
+            final_dir = os.path.join(_music_dir, "Soundtracks", album_folder)
         elif metadata.get('is_compilation'):
-            final_dir = os.path.join(_music_dir, "Compilaciones", album)
+            final_dir = os.path.join(_music_dir, "Compilaciones", album_folder)
         else:
             folder = metadata.get('genre', 'General-Music')
-            final_dir = os.path.join(_music_dir, folder, artist, album)
+            final_dir = os.path.join(_music_dir, folder, artist, album_folder)
 
         os.makedirs(final_dir, exist_ok=True)
         final_path = os.path.join(final_dir, f"{track_no} - {title}.{ext}")

@@ -66,13 +66,13 @@ function runMediaProcessor(args: string[]): Promise<any> {
 
 const GENRE_MAPPING_KEYS = [
   "J-Music",
-  "Música-Cumbias-y-Tropical",
-  "Música-Rancheras",
-  "Música-Reggaeton",
-  "Música-Rock",
-  "Música-HipHop",
-  "Música-Electronica",
-  "Música-Pop"
+  "Cumbias-y-Tropical",
+  "Rancheras",
+  "Reggaeton",
+  "Rock",
+  "HipHop",
+  "Electronica",
+  "Pop"
 ];
 
 export function registerMediaCommands(bot: Bot) {
