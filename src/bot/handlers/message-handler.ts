@@ -166,6 +166,9 @@ async function handleIncomingMessage(ctx: Context) {
   console.log(`[Bot] 🕵️ Mensaje recibido en el chat ${chatId}.`);
   
   const text = ctx.message?.text || ctx.message?.caption || "";
+  if (text.trim().startsWith('/')) {
+    return;
+  }
   const isGroup = ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup';
   const threadIdInt = ctx.message?.message_thread_id;
   const threadId = threadIdInt?.toString();
