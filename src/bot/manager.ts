@@ -75,6 +75,15 @@ export class ManagedBotService {
       // Aplicar misma lógica que el bot principal
       setupBotHandlers(bot);
 
+      // Registrar los comandos visibles para administradores en el bot gestionado
+      import('./index.js').then(async ({ setBotCommands }) => {
+        try {
+          await setBotCommands(bot);
+        } catch (e) {
+          console.error(`[Manager] Error al configurar comandos para @${botData.username}:`, e);
+        }
+      });
+
       // Si hay webhook configurado globalmente, registrar el webhook en Telegram
       if (config.webhookUrl) {
         const webhookPath = `${config.webhookUrl}/bot/${botData.token}`;

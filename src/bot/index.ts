@@ -14,7 +14,7 @@ export const bot = new Bot(config.telegramBotToken);
 /**
  * Configurar comandos visibles solo para administradores
  */
-async function setBotCommands() {
+export async function setBotCommands(botInstance: Bot) {
   const commands = [
     { command: 'help', description: 'Muestra la guía de todos los comandos (Admin)' },
     { command: 'features', description: 'Gestiona módulos de conocimiento' },
@@ -36,11 +36,11 @@ async function setBotCommands() {
   ];
 
   try {
-    await bot.api.setMyCommands(commands, { scope: { type: 'all_chat_administrators' } });
+    await botInstance.api.setMyCommands(commands, { scope: { type: 'all_chat_administrators' } });
     for (const userId of config.telegramAllowedUserIds) {
-      await bot.api.setMyCommands(commands, { scope: { type: 'chat', chat_id: parseInt(userId) } });
+      await botInstance.api.setMyCommands(commands, { scope: { type: 'chat', chat_id: parseInt(userId) } });
     }
-    console.log('[Bot] ✅ Comandos configurados con éxito');
+    console.log(`[Bot] ✅ Comandos configurados con éxito`);
   } catch (e) {
     console.error('[Bot] ❌ Error configurando comandos:', e);
   }
@@ -123,7 +123,7 @@ setupBotHandlers(bot);
  * Inicializar
  */
 export async function initializeBot() {
-  await setBotCommands();
+  await setBotCommands(bot);
   
   // Inicializar servicio de bots gestionados
   const { ManagedBotService } = await import('./manager.js');
