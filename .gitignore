@@ -9,3 +9,9 @@ authorize_*.ts
 cleanup_db.ts
 .aider*
 .gitnexus
+venv/
+cookies.txt
+scripts/fpcalc.exe
+*.webm
+scratch_first_entry.json
+

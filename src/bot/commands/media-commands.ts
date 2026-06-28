@@ -1,10 +1,19 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { isAdmin } from '../helpers.js';
 
 const pendingTasks = new Map<string, any>();
 
-const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+let pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+if (process.platform === 'win32' && existsSync(join(process.cwd(), 'venv', 'Scripts', 'python.exe'))) {
+  pythonCmd = join(process.cwd(), 'venv', 'Scripts', 'python.exe');
+} else if (process.platform !== 'win32' && existsSync(join(process.cwd(), 'venv', 'bin', 'python3'))) {
+  pythonCmd = join(process.cwd(), 'venv', 'bin', 'python3');
+} else if (process.platform !== 'win32' && existsSync(join(process.cwd(), 'venv', 'bin', 'python'))) {
+  pythonCmd = join(process.cwd(), 'venv', 'bin', 'python');
+}
 
 function runMediaProcessor(args: string[]): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -70,6 +79,7 @@ const GENRE_MAPPING_KEYS = [
   "Rancheras",
   "Reggaeton",
   "Rock",
+  "Rock-Latino",
   "HipHop",
   "Electronica",
   "Pop"
@@ -101,33 +111,67 @@ export function registerMediaCommands(bot: Bot) {
         throw new Error(result.error || 'Unknown error');
       }
 
-      const metadata = result.metadata;
-      pendingTasks.set(taskId, metadata);
+      if (result.is_playlist) {
+        result.is_album_mode = result.is_album_mode !== false; // true por defecto
+        pendingTasks.set(taskId, result);
 
-      // Build keyboard
-      const keyboard = new InlineKeyboard();
-      keyboard.text(`✅ Confirmar sugerido: ${metadata.genre}`, `confirm_${taskId}`).row();
-      for (const genreKey of GENRE_MAPPING_KEYS) {
-        keyboard.text(`📁 ${genreKey}`, `set_${taskId}_${genreKey}`).row();
+        // Build keyboard
+        const keyboard = new InlineKeyboard();
+        const modeLabel = result.is_album_mode ? "📀 Modo: Álbum (Homogéneo)" : "🔀 Modo: Mix (Pistas Sueltas)";
+        keyboard.text(modeLabel, `togglealbum_${taskId}`).row();
+        keyboard.text(`✅ Confirmar sugerido: ${result.genre}`, `confirm_${taskId}`).row();
+        for (const genreKey of GENRE_MAPPING_KEYS) {
+          keyboard.text(`📁 ${genreKey}`, `set_${taskId}_${genreKey}`).row();
+        }
+
+        const modeDesc = result.is_album_mode 
+          ? "Se unificarán los temas bajo el mismo artista, año y carátula del álbum." 
+          : "Se respetará el artista, álbum, año y carátula individual de cada pista.";
+
+        const replyText = `🎵 <b>Análisis de Álbum/Playlist Exitoso</b>\n` +
+          `💿 <b>Álbum/Playlist:</b> ${result.playlist_title}\n` +
+          `👤 <b>Artista/Canal:</b> ${result.playlist_artist}\n` +
+          `📦 <b>Total de Pistas:</b> ${result.tracks.length} canciones\n` +
+          `🖼️ <b>Carátulas:</b> ${result.tracks_with_artwork}/${result.tracks.length} listas\n` +
+          `📝 <b>Letras:</b> ${result.tracks_with_lyrics}/${result.tracks.length} localizadas\n` +
+          `⚙️ <b>Modo Seleccionado:</b> <b>${result.is_album_mode ? "Álbum" : "Mix / Playlist"}</b>\n` +
+          `💡 <i>${modeDesc}</i>\n\n` +
+          `🧠 <b>Carpeta Destino Sugerida:</b> <code>${result.genre}</code>\n\n` +
+          `Por favor selecciona una categoría para archivar todas las canciones en tu servidor:`;
+
+        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, replyText, {
+          reply_markup: keyboard,
+          parse_mode: 'HTML'
+        });
+      } else {
+        const metadata = result.metadata;
+        pendingTasks.set(taskId, metadata);
+
+        // Build keyboard
+        const keyboard = new InlineKeyboard();
+        keyboard.text(`✅ Confirmar sugerido: ${metadata.genre}`, `confirm_${taskId}`).row();
+        for (const genreKey of GENRE_MAPPING_KEYS) {
+          keyboard.text(`📁 ${genreKey}`, `set_${taskId}_${genreKey}`).row();
+        }
+
+        const lyricsStatus = metadata.lyrics ? "✅ Localizada" : "❌ No encontrada";
+        const artworkStatus = metadata.artwork_path ? "✅ HD Lista" : "❌ No encontrada";
+        const fileExt = metadata.filepath?.split('.').pop()?.toUpperCase() || 'M4A';
+        const formatLabel = fileExt === 'M4A' ? 'M4A Nativo' : fileExt;
+        const replyText = `🎵 <b>Análisis de Pista Exitoso (${formatLabel})</b>\n` +
+          `👤 <b>Artista:</b> ${metadata.artist}\n` +
+          `💿 <b>Track:</b> ${metadata.title}\n` +
+          `📀 <b>Álbum:</b> ${metadata.album}\n` +
+          `🖼️ <b>Carátula:</b> ${artworkStatus}\n` +
+          `📝 <b>Letras:</b> ${lyricsStatus}\n\n` +
+          `🧠 <b>Carpeta Destino Sugerida:</b> <code>${metadata.genre}</code>\n\n` +
+          `Por favor selecciona una categoría para archivar en tu servidor:`;
+
+        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, replyText, {
+          reply_markup: keyboard,
+          parse_mode: 'HTML'
+        });
       }
-
-      const lyricsStatus = metadata.lyrics ? "✅ Localizada" : "❌ No encontrada";
-      const artworkStatus = metadata.artwork_path ? "✅ HD Lista" : "❌ No encontrada";
-      const fileExt = metadata.filepath?.split('.').pop()?.toUpperCase() || 'M4A';
-      const formatLabel = fileExt === 'M4A' ? 'M4A Nativo' : fileExt;
-      const replyText = `🎵 <b>Análisis de Pista Exitoso (${formatLabel})</b>\n` +
-        `👤 <b>Artista:</b> ${metadata.artist}\n` +
-        `💿 <b>Track:</b> ${metadata.title}\n` +
-        `📀 <b>Álbum:</b> ${metadata.album}\n` +
-        `🖼️ <b>Carátula:</b> ${artworkStatus}\n` +
-        `📝 <b>Letras:</b> ${lyricsStatus}\n\n` +
-        `🧠 <b>Carpeta Destino Sugerida:</b> <code>${metadata.genre}</code>\n\n` +
-        `Por favor selecciona una categoría para archivar en tu servidor:`;
-
-      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, replyText, {
-        reply_markup: keyboard,
-        parse_mode: 'HTML'
-      });
     } catch (e: any) {
       console.error(`[MediaProcessor Error]`, e);
       const safeErrorMsg = `❌ Error al procesar el audio: ${e.message}`.substring(0, 3500);
@@ -201,6 +245,47 @@ export function registerMediaCommands(bot: Bot) {
     }
   });
 
+  bot.callbackQuery(/^togglealbum_(.+)$/, async (ctx) => {
+    const taskId = ctx.match[1];
+    const metadata = pendingTasks.get(taskId);
+    if (!metadata || !metadata.is_playlist) {
+      await ctx.answerCallbackQuery({ text: "Esta tarea expiró o no es una playlist.", show_alert: true });
+      return;
+    }
+
+    metadata.is_album_mode = !metadata.is_album_mode;
+    pendingTasks.set(taskId, metadata);
+    await ctx.answerCallbackQuery();
+
+    const keyboard = new InlineKeyboard();
+    const modeLabel = metadata.is_album_mode ? "📀 Modo: Álbum (Homogéneo)" : "🔀 Modo: Mix (Pistas Sueltas)";
+    keyboard.text(modeLabel, `togglealbum_${taskId}`).row();
+    keyboard.text(`✅ Confirmar sugerido: ${metadata.genre}`, `confirm_${taskId}`).row();
+    for (const genreKey of GENRE_MAPPING_KEYS) {
+      keyboard.text(`📁 ${genreKey}`, `set_${taskId}_${genreKey}`).row();
+    }
+
+    const modeDesc = metadata.is_album_mode 
+      ? "Se unificarán los temas bajo el mismo artista, año y carátula del álbum." 
+      : "Se respetará el artista, álbum, año y carátula individual de cada pista.";
+
+    const replyText = `🎵 <b>Análisis de Álbum/Playlist Exitoso</b>\n` +
+      `💿 <b>Álbum/Playlist:</b> ${metadata.playlist_title}\n` +
+      `👤 <b>Artista/Canal:</b> ${metadata.playlist_artist}\n` +
+      `📦 <b>Total de Pistas:</b> ${metadata.tracks.length} canciones\n` +
+      `🖼️ <b>Carátulas:</b> ${metadata.tracks_with_artwork}/${metadata.tracks.length} listas\n` +
+      `📝 <b>Letras:</b> ${metadata.tracks_with_lyrics}/${metadata.tracks.length} localizadas\n` +
+      `⚙️ <b>Modo Seleccionado:</b> <b>${metadata.is_album_mode ? "Álbum" : "Mix / Playlist"}</b>\n` +
+      `💡 <i>${modeDesc}</i>\n\n` +
+      `🧠 <b>Carpeta Destino Sugerida:</b> <code>${metadata.genre}</code>\n\n` +
+      `Por favor selecciona una categoría para archivar todas las canciones en tu servidor:`;
+
+    await ctx.editMessageText(replyText, {
+      reply_markup: keyboard,
+      parse_mode: 'HTML'
+    });
+  });
+
   bot.callbackQuery(/^(confirm|set)_(.+)$/, async (ctx) => {
     const match = ctx.match;
     if (!match) return;
@@ -232,16 +317,25 @@ export function registerMediaCommands(bot: Bot) {
     }
 
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText("⚙️ Escribiendo tags ID3, inyectando letra y enviando a Navidrome...");
+    const isPlaylist = metadata.is_playlist;
+    const progressMsg = isPlaylist 
+      ? "⚙️ Escribiendo tags ID3, inyectando letras y organizando todas las canciones en Navidrome..."
+      : "⚙️ Escribiendo tags ID3, inyectando letra y enviando a Navidrome...";
+    await ctx.editMessageText(progressMsg);
 
     try {
-      const result = await runMediaProcessor(['finalize', metadata.filepath, JSON.stringify(metadata)]);
+      const filepathArg = isPlaylist ? "" : metadata.filepath;
+      const result = await runMediaProcessor(['finalize', filepathArg, JSON.stringify(metadata)]);
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
 
       pendingTasks.delete(taskId);
-      await ctx.editMessageText(`✅ <b>Operación Exitosa</b>\nOrganizado correctamente en:\n<code>${result.final_path}</code>`, {
+      const successMsg = isPlaylist
+        ? `✅ <b>Operación Exitosa</b>\nSe organizaron correctamente <b>${result.tracks_count}</b> canciones del álbum en:\n<code>${result.final_path}</code>`
+        : `✅ <b>Operación Exitosa</b>\nOrganizado correctamente en:\n<code>${result.final_path}</code>`;
+      
+      await ctx.editMessageText(successMsg, {
         parse_mode: 'HTML'
       });
     } catch (e: any) {

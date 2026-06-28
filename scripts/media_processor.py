@@ -13,9 +13,13 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT, APIC, TDRC
 from mutagen.mp4 import MP4, MP4Cover
 
-# Configurar yt-dlp para usar Node.js como runtime JS (node:20-slim ya tiene node en PATH)
+# Configurar yt-dlp para usar Node.js como runtime JS
 # Esto evita el error "No supported JavaScript runtime could be found"
-_ytdlp_config_dir = os.path.expanduser('~/.config/yt-dlp')
+if os.name == 'nt':  # Windows
+    _ytdlp_config_dir = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'yt-dlp')
+else:  # Linux / macOS
+    _ytdlp_config_dir = os.path.expanduser('~/.config/yt-dlp')
+
 os.makedirs(_ytdlp_config_dir, exist_ok=True)
 with open(os.path.join(_ytdlp_config_dir, 'config'), 'w') as _f:
     _f.write('--js-runtimes node\n')
@@ -27,14 +31,15 @@ MUSICBRAINZ_APP = "SP-Agent"
 MUSICBRAINZ_VERSION = "1.2"
 MUSICBRAINZ_CONTACT = "admin@tu-dominio.com"
 
-TEMP_DIR = os.getenv("TEMP_DIR", "/tmp/sp-agent/downloads")
-_music_dir = os.getenv("MUSIC_DIR", "/media/music")
+TEMP_DIR = os.getenv("TEMP_DIR", "M:\\downloads" if os.name == 'nt' else "/tmp/sp-agent/downloads")
+_music_dir = os.getenv("MUSIC_DIR", "M:\\music" if os.name == 'nt' else "/media/music")
 
 GENRE_MAPPING = {
     "J-Music": ["j-pop", "j-rock", "anime", "japanese", "vocaloid", "jpop", "jrock"],
     "Cumbias-y-Tropical": ["cumbia", "salsa", "merengue", "tropical", "bachata"],
     "Rancheras": ["ranchera", "mariachi", "regional mexicano", "corridos", "corrido"],
     "Reggaeton": ["reggaeton", "urbano", "perreo", "dembow", "latin pop"],
+    "Rock-Latino": ["rock latino", "rock en espanol", "rock en español", "chilean rock", "latin rock", "rock chileno", "rock argentino", "rock mexicano", "gufi", "los prisioneros", "soda stereo", "fiskales ad-hok"],
     "Rock": ["rock", "metal", "punk", "grunge", "indie", "alternative rock"],
     "HipHop": ["hip hop", "rap", "trap", "r&b"],
     "Electronica": ["electronic", "techno", "house", "edm", "dance", "trance"],
@@ -50,9 +55,18 @@ kks = pykakasi.kakasi()
 # =========================================================================
 # PROVEEDORES EXTERNOS DE METADATOS Y MEJORAS (iTunes, Deezer, Lrclib, Romaji)
 # =========================================================================
+def contains_japanese(text: str) -> bool:
+    """Detecta si una cadena contiene caracteres japoneses (Hiragana, Katakana o Kanji)."""
+    for char in text:
+        if ('\u3040' <= char <= '\u309f') or ('\u30a0' <= char <= '\u30ff') or ('\u4e00' <= char <= '\u9faf'):
+            return True
+    return False
+
 def clean_and_romaji(text: str) -> str:
-    """Detecta caracteres japoneses y los convierte a Romaji legible."""
+    """Detecta caracteres japoneses y los convierte a Romaji legible, manteniendo intactos los demás idiomas."""
     if not text:
+        return text
+    if not contains_japanese(text):
         return text
     result = kks.convert(text)
     romaji_text = " ".join([item.get('hepburn', item.get('orig', '')).capitalize() for item in result])
@@ -145,6 +159,175 @@ def fetch_lyrics_from_lrclib(artist: str, title: str) -> str:
         logger.error(f"Error buscando letras: {e}")
     return ""
 
+def fetch_from_acoustid(filepath: str) -> dict:
+    """Calcula la huella digital del archivo de audio con fpcalc y busca coincidencias en AcoustID."""
+    fpcalc_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fpcalc.exe")
+    if not os.path.exists(fpcalc_bin):
+        import shutil
+        fpcalc_bin = shutil.which("fpcalc")
+        
+    if not fpcalc_bin:
+        logger.error("No se encontró el ejecutable fpcalc (local ni global en el PATH)")
+        return {}
+    
+    try:
+        # Ejecutar fpcalc para obtener duración y huella digital en JSON
+        import subprocess
+        cmd = [fpcalc_bin, "-json", filepath]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        data = json.loads(res.stdout)
+        duration = data.get("duration")
+        fingerprint = data.get("fingerprint")
+        
+        if not duration or not fingerprint:
+            logger.error("No se pudo obtener duración o huella digital desde fpcalc")
+            return {}
+        
+        # Consultar AcoustID API
+        client_key = "8XaBELvH"
+        url = "https://api.acoustid.org/v2/lookup"
+        params = {
+            "client": client_key,
+            "meta": "recordings releasegroups releases",
+            "duration": int(duration),
+            "fingerprint": fingerprint
+        }
+        
+        response = requests.get(url, params=params, timeout=8)
+        if response.status_code != 200:
+            logger.error(f"Error en respuesta de AcoustID API: {response.status_code}")
+            return {}
+            
+        res_data = response.json()
+        if res_data.get("status") != "ok" or not res_data.get("results"):
+            logger.info(f"AcoustID no encontró coincidencias para {os.path.basename(filepath)}")
+            return {}
+            
+        results = res_data["results"]
+        results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        
+        for r in results:
+            if r.get("score", 0.0) < 0.65:
+                continue
+            recordings = r.get("recordings", [])
+            for rec in recordings:
+                recording_id = rec.get("id")
+                if recording_id:
+                    logger.info(f"¡Huella identificada exitosamente! AcoustID Score: {r.get('score')} -> MBID: {recording_id}")
+                    return {
+                        "musicbrainz_id": recording_id,
+                        "acoustid_score": r.get("score")
+                    }
+    except Exception as e:
+        logger.error(f"Error procesando huella AcoustID para {filepath}: {e}")
+    return {}
+
+def fetch_from_musicbrainz_id(recording_id: str) -> dict:
+    """Consulta los metadatos detallados en MusicBrainz usando el Recording ID oficial."""
+    try:
+        res = musicbrainzngs.get_recording_by_id(
+            recording_id, 
+            includes=["releases", "artists", "release-groups"]
+        )
+        
+        recording = res.get("recording", {})
+        if not recording:
+            return {}
+            
+        title = recording.get("title")
+        
+        artist_credit = recording.get("artist-credit", [])
+        artist_name = "Unknown Artist"
+        mb_artist_id = ""
+        if artist_credit:
+            artist_name = "".join([
+                credit.get("artist", {}).get("name", "") + credit.get("joinphrase", "")
+                for credit in artist_credit if isinstance(credit, dict)
+            ]).strip() or artist_credit[0].get("artist", {}).get("name", "Unknown Artist")
+            mb_artist_id = artist_credit[0].get("artist", {}).get("id", "")
+            
+        album_name = "Unknown Album"
+        release_year = ""
+        release_id = ""
+        mb_albumartist_id = ""
+        mb_releasegroup_id = ""
+        original_date = ""
+        
+        releases = recording.get("release-list", [])
+        if releases:
+            best_release = releases[0]
+            for rel in releases:
+                if rel.get("date"):
+                    best_release = rel
+                    break
+            album_name = best_release.get("title", "Unknown Album")
+            release_id = best_release.get("id")
+            
+            # Obtener artista del álbum si está disponible
+            rel_artist_credit = best_release.get("artist-credit", [])
+            if rel_artist_credit:
+                mb_albumartist_id = rel_artist_credit[0].get("artist", {}).get("id", "")
+            
+            if best_release.get("release-group"):
+                mb_releasegroup_id = best_release["release-group"].get("id", "")
+            
+            rel_date = best_release.get("date")
+            if rel_date:
+                release_year = rel_date[:4]
+                
+        if not mb_albumartist_id:
+            mb_albumartist_id = mb_artist_id
+            
+        # Intentar obtener release_group_id y original_date del release-group-list
+        if recording.get("release-group-list"):
+            rg_list = recording.get("release-group-list", [])
+            if rg_list:
+                if not mb_releasegroup_id:
+                    mb_releasegroup_id = rg_list[0].get("id", "")
+                original_date = rg_list[0].get("first-release-date", "")
+                if original_date and not release_year:
+                    release_year = original_date[:4]
+                    
+        if not original_date and releases:
+            original_date = best_release.get("date", "")
+                    
+        artwork_url = ""
+        if release_id:
+            try:
+                caa_url = f"https://coverartarchive.org/release/{release_id}"
+                caa_res = requests.get(caa_url, timeout=5)
+                if caa_res.status_code == 200:
+                    caa_data = caa_res.json()
+                    images = caa_data.get("images", [])
+                    for img in images:
+                        if img.get("front") and img.get("image"):
+                            artwork_url = img.get("image")
+                            break
+            except Exception as caa_err:
+                logger.error(f"Error consultando Cover Art Archive para release {release_id}: {caa_err}")
+                
+        genres = []
+        for tag in recording.get("tag-list", []):
+            genres.append(tag.get("name", "").lower())
+            
+        return {
+            "title": clean_and_romaji(title),
+            "artist": clean_and_romaji(artist_name),
+            "album": clean_and_romaji(album_name),
+            "year": release_year,
+            "original_date": original_date,
+            "artwork_url": artwork_url,
+            "genres": genres,
+            "musicbrainz_track_id": recording_id,
+            "musicbrainz_album_id": release_id,
+            "musicbrainz_artist_id": mb_artist_id,
+            "musicbrainz_albumartist_id": mb_albumartist_id,
+            "musicbrainz_releasegroup_id": mb_releasegroup_id
+        }
+    except Exception as e:
+        logger.error(f"Error consultando metadatos en MusicBrainz por ID {recording_id}: {e}")
+    return {}
+
 
 # =========================================================================
 # CLASE MAESTRA: PROCESADOR MULTIMEDIA
@@ -158,6 +341,8 @@ class MediaProcessor:
 
         ydl_opts = {
             'format': 'bestaudio/best',  # Permite descargar cualquier formato de audio óptimo
+            'remote_components': ['ejs:github'],
+            'js_runtimes': {'node': {}},
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',
@@ -176,82 +361,200 @@ class MediaProcessor:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
 
-            # Localizar el archivo real post-procesado (la extensión puede cambiar)
-            pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
-            candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
-            if candidates:
-                filename = candidates[0]
+            # Detectar si es playlist
+            if info.get('_type') == 'playlist' or 'entries' in info:
+                tracks = []
+                playlist_title = info.get('title') or 'Unknown Album'
+                playlist_uploader = info.get('uploader') or info.get('artist') or 'Unknown Artist'
+                
+                # Procesar cada entrada de la playlist
+                for i, entry in enumerate(info.get('entries', [])):
+                    if not entry:
+                        continue
+                    
+                    # Intentar preparar el nombre de archivo esperado
+                    try:
+                        filename = ydl.prepare_filename(entry)
+                        base, ext = os.path.splitext(filename)
+                        filename = base + '.m4a'
+                        if not os.path.exists(filename):
+                            pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+                            candidates = [f for f in glob.glob(pattern) if entry.get('title') in f and not f.endswith('_cover.jpg')]
+                            if candidates:
+                                filename = candidates[0]
+                    except Exception:
+                        filename = ""
+                        pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+                        candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+                        if len(candidates) > i:
+                            filename = candidates[i]
+                    
+                    if not filename or not os.path.exists(filename):
+                        clean_entry_title = entry.get('title', '')
+                        pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+                        candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+                        best_match = None
+                        for cand in candidates:
+                            cand_base = os.path.basename(cand)
+                            if any(part.lower() in cand_base.lower() for part in clean_entry_title.split() if len(part) > 2):
+                                best_match = cand
+                                break
+                        if best_match:
+                            filename = best_match
+                        elif candidates:
+                            if i < len(candidates):
+                                filename = candidates[i]
+                            else:
+                                filename = candidates[0]
+                    
+                    entry_artist = entry.get('artist') or entry.get('uploader') or playlist_uploader
+                    entry_title = entry.get('track') or entry.get('title') or 'Unknown Title'
+                    entry_album = entry.get('album') or playlist_title
+                    track_num = str(entry.get('playlist_index') or entry.get('track_number') or (i + 1))
+                    
+                    tracks.append({
+                        "filepath": filename,
+                        "title": clean_and_romaji(entry_title),
+                        "artist": clean_and_romaji(entry_artist),
+                        "album": clean_and_romaji(entry_album),
+                        "track_number": track_num,
+                        "is_compilation": "various" in entry_artist.lower() or "compilation" in entry_album.lower(),
+                        "is_soundtrack": "ost" in entry_title.lower() or "soundtrack" in entry_album.lower(),
+                        "raw_tags": [t.lower() for t in entry.get('tags', [])] if entry.get('tags') else []
+                    })
+                
+                playlist_artist = playlist_uploader
+                if (playlist_artist == 'Unknown Artist' or not playlist_artist) and tracks:
+                    artists = [t['artist'] for t in tracks if t['artist'] and t['artist'] != 'Unknown Artist']
+                    if artists:
+                        from collections import Counter
+                        playlist_artist = Counter(artists).most_common(1)[0][0]
+                
+                return {
+                    "is_playlist": True,
+                    "playlist_title": clean_and_romaji(playlist_title),
+                    "playlist_artist": clean_and_romaji(playlist_artist),
+                    "tracks": tracks
+                }
+            
             else:
-                filename = ydl.prepare_filename(info)
-                # Fallback: corregir extensión si fue convertido de webm
-                base, ext = os.path.splitext(filename)
-                if ext != '.m4a' and os.path.exists(base + '.m4a'):
-                    filename = base + '.m4a'
+                # Caso de una sola canción (comportamiento original)
+                pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+                candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+                if candidates:
+                    filename = candidates[0]
+                else:
+                    filename = ydl.prepare_filename(info)
+                    base, ext = os.path.splitext(filename)
+                    if ext != '.m4a' and os.path.exists(base + '.m4a'):
+                        filename = base + '.m4a'
 
-            yt_artist = info.get('artist') or info.get('uploader') or 'Unknown Artist'
-            yt_title = info.get('track') or info.get('title') or 'Unknown Title'
-            yt_album = info.get('album') or 'Unknown Album'
+                yt_artist = info.get('artist') or info.get('uploader') or 'Unknown Artist'
+                yt_title = info.get('track') or info.get('title') or 'Unknown Title'
+                yt_album = info.get('album') or 'Unknown Album'
 
-            return {
-                "filepath": filename,
-                "title": clean_and_romaji(yt_title),
-                "artist": clean_and_romaji(yt_artist),
-                "album": clean_and_romaji(yt_album),
-                "track_number": info.get('track_number', '1') or '1',
-                "is_compilation": "various" in yt_artist.lower() or "compilation" in yt_album.lower(),
-                "is_soundtrack": "ost" in yt_title.lower() or "soundtrack" in yt_album.lower(),
-                "raw_tags": [t.lower() for t in info.get('tags', [])] if info.get('tags') else []
-            }
+                return {
+                    "is_playlist": False,
+                    "filepath": filename,
+                    "title": clean_and_romaji(yt_title),
+                    "artist": clean_and_romaji(yt_artist),
+                    "album": clean_and_romaji(yt_album),
+                    "track_number": info.get('track_number', '1') or '1',
+                    "is_compilation": "various" in yt_artist.lower() or "compilation" in yt_album.lower(),
+                    "is_soundtrack": "ost" in yt_title.lower() or "soundtrack" in yt_album.lower(),
+                    "raw_tags": [t.lower() for t in info.get('tags', [])] if info.get('tags') else []
+                }
 
     @staticmethod
     def fetch_genre_multi_provider(metadata: dict) -> str:
-        """Filtro jerárquico inteligente cruzando iTunes -> Deezer -> MusicBrainz."""
-        artist_q = metadata['artist']
-        title_q = metadata['title']
-        genres_found = list(metadata['raw_tags'])
+        """Filtro jerárquico inteligente cruzando AcoustID -> iTunes -> Deezer -> MusicBrainz."""
+        filepath = metadata.get("filepath")
+        genres_found = []
+        acoustid_success = False
 
-        # 1. Intentar iTunes
-        itunes = fetch_from_itunes(artist_q, title_q)
-        if itunes.get('genre'):
-            genres_found.append(itunes['genre'])
-            metadata['artist'] = clean_and_romaji(itunes['artist'])
-            metadata['title'] = clean_and_romaji(itunes['title'])
-            metadata['album'] = clean_and_romaji(itunes['album'])
-            if itunes.get('artwork_url'):
-                metadata['artwork_url'] = itunes['artwork_url']
-            if itunes.get('year'):
-                metadata['year'] = itunes['year']
-        
-        # 2. Intentar Deezer
-        else:
-            deezer = fetch_from_deezer(artist_q, title_q)
-            if deezer.get('genre'):
-                genres_found.append(deezer['genre'])
-            if deezer.get('title'):
-                metadata['artist'] = clean_and_romaji(deezer['artist'])
-                metadata['title'] = clean_and_romaji(deezer['title'])
-                metadata['album'] = clean_and_romaji(deezer['album'])
-            if deezer.get('artwork_url'):
-                metadata['artwork_url'] = deezer['artwork_url']
-            if deezer.get('year'):
-                metadata['year'] = deezer['year']
+        # 1. Intentar identificación por Huella de Audio (AcoustID / Picard Scan)
+        if filepath and os.path.exists(filepath):
+            logger.info(f"Iniciando escaneo AcoustID para: {os.path.basename(filepath)}")
+            acoustid_res = fetch_from_acoustid(filepath)
+            if acoustid_res.get("musicbrainz_id"):
+                mb_id = acoustid_res["musicbrainz_id"]
+                mb_meta = fetch_from_musicbrainz_id(mb_id)
+                if mb_meta:
+                    metadata['artist'] = mb_meta['artist']
+                    metadata['title'] = mb_meta['title']
+                    metadata['album'] = mb_meta['album']
+                    if mb_meta.get('year'):
+                        metadata['year'] = mb_meta['year']
+                    if mb_meta.get('original_date'):
+                        metadata['original_date'] = mb_meta['original_date']
+                    if mb_meta.get('artwork_url'):
+                        metadata['artwork_url'] = mb_meta['artwork_url']
+                    
+                    # Guardar MBIDs
+                    metadata['musicbrainz_track_id'] = mb_meta.get('musicbrainz_track_id', '')
+                    metadata['musicbrainz_album_id'] = mb_meta.get('musicbrainz_album_id', '')
+                    metadata['musicbrainz_artist_id'] = mb_meta.get('musicbrainz_artist_id', '')
+                    metadata['musicbrainz_albumartist_id'] = mb_meta.get('musicbrainz_albumartist_id', '')
+                    metadata['musicbrainz_releasegroup_id'] = mb_meta.get('musicbrainz_releasegroup_id', '')
+                    
+                    if mb_meta.get('genres'):
+                        genres_found.extend(mb_meta['genres'])
+                    acoustid_success = True
+                    logger.info(f"Identificación por huella AcoustID exitosa: {mb_meta['artist']} - {mb_meta['title']}")
 
-        # 3. Respaldo MusicBrainz
-        if len(genres_found) <= len(metadata['raw_tags']):
-            try:
-                res = musicbrainzngs.search_recordings(artist=artist_q, recording=title_q, limit=1)
-                if res['recording-list']:
-                    for tag in res['recording-list'][0].get('tag-list', []):
-                        genres_found.append(tag['name'].lower())
-            except Exception:
-                pass
+        # Si AcoustID falló o no coincide, hacemos fallback al embudo de texto clásica (iTunes -> Deezer -> MB texto)
+        if not acoustid_success:
+            artist_q = metadata['artist']
+            title_q = metadata['title']
+            
+            # 2. Intentar iTunes
+            itunes = fetch_from_itunes(artist_q, title_q)
+            if itunes.get('genre'):
+                genres_found.append(itunes['genre'])
+                metadata['artist'] = clean_and_romaji(itunes['artist'])
+                metadata['title'] = clean_and_romaji(itunes['title'])
+                metadata['album'] = clean_and_romaji(itunes['album'])
+                if itunes.get('artwork_url'):
+                    metadata['artwork_url'] = itunes['artwork_url']
+                if itunes.get('year'):
+                    metadata['year'] = itunes['year']
+            
+            # 3. Intentar Deezer
+            else:
+                deezer = fetch_from_deezer(artist_q, title_q)
+                if deezer.get('genre'):
+                    genres_found.append(deezer['genre'])
+                if deezer.get('title'):
+                    metadata['artist'] = clean_and_romaji(deezer['artist'])
+                    metadata['title'] = clean_and_romaji(deezer['title'])
+                    metadata['album'] = clean_and_romaji(deezer['album'])
+                if deezer.get('artwork_url'):
+                    metadata['artwork_url'] = deezer['artwork_url']
+                if deezer.get('year'):
+                    metadata['year'] = deezer['year']
+
+            # 4. Respaldo MusicBrainz (por texto)
+            if not genres_found:
+                try:
+                    res = musicbrainzngs.search_recordings(artist=artist_q, recording=title_q, limit=1)
+                    if res['recording-list']:
+                        for tag in res['recording-list'][0].get('tag-list', []):
+                            genres_found.append(tag['name'].lower())
+                except Exception:
+                    pass
+
+        # Guardar todos los géneros concatenados por punto y coma en metadata para inyectar al tag físico
+        metadata['all_genres'] = "; ".join(sorted(list(set([g.title() for g in genres_found if g]))))
+
+        # Unir para evaluar el clasificador local de carpetas
+        classification_tags = genres_found + [t.lower() for t in metadata.get('raw_tags', [])]
 
         # Evaluar el Embudo de decisión de tu servidor
-        if any(kw in g for g in genres_found for kw in ["anime", "j-pop", "j-rock", "japanese", "vocaloid"]):
+        if any(kw in g for g in classification_tags for kw in ["anime", "j-pop", "j-rock", "japanese", "vocaloid"]):
             return "J-Music"
 
         for target_folder, keywords in GENRE_MAPPING.items():
-            if any(kw in g for g in genres_found for kw in keywords):
+            if any(kw in g for g in classification_tags for kw in keywords):
                 return target_folder
 
         return "General-Music"
@@ -268,13 +571,15 @@ class MediaProcessor:
             except Exception as e:
                 logger.error(f"Error leyendo carátula de {metadata['artwork_path']}: {e}")
 
+        genre_val = metadata.get('all_genres') or metadata.get('genre', 'General-Music')
+
         try:
             if ext == "m4a":
                 audio = MP4(filepath)
                 audio["\xa9nam"] = metadata['title']
                 audio["\xa9ART"] = metadata['artist']
                 audio["\xa9alb"] = metadata['album']
-                audio["\xa9gen"] = metadata['genre']
+                audio["\xa9gen"] = genre_val
                 
                 track_val = metadata.get('track_number', '1')
                 try:
@@ -288,6 +593,20 @@ class MediaProcessor:
                 if metadata.get('year'):
                     audio["\xa9day"] = str(metadata['year'])
                 
+                # Inyectar atoms de MusicBrainz (MBIDs) y original date
+                if metadata.get('musicbrainz_track_id'):
+                    audio['----:com.apple.iTunes:MusicBrainz Track Id'] = [metadata['musicbrainz_track_id'].encode('utf-8')]
+                if metadata.get('musicbrainz_album_id'):
+                    audio['----:com.apple.iTunes:MusicBrainz Album Id'] = [metadata['musicbrainz_album_id'].encode('utf-8')]
+                if metadata.get('musicbrainz_artist_id'):
+                    audio['----:com.apple.iTunes:MusicBrainz Artist Id'] = [metadata['musicbrainz_artist_id'].encode('utf-8')]
+                if metadata.get('musicbrainz_albumartist_id'):
+                    audio['----:com.apple.iTunes:MusicBrainz Album Artist Id'] = [metadata['musicbrainz_albumartist_id'].encode('utf-8')]
+                if metadata.get('musicbrainz_releasegroup_id'):
+                    audio['----:com.apple.iTunes:MusicBrainz Release Group Id'] = [metadata['musicbrainz_releasegroup_id'].encode('utf-8')]
+                if metadata.get('original_date'):
+                    audio['----:com.apple.iTunes:originaldate'] = [metadata['original_date'].encode('utf-8')]
+                
                 if artwork_bytes:
                     audio["covr"] = [MP4Cover(artwork_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
                 
@@ -300,7 +619,7 @@ class MediaProcessor:
                 audio.tags.add(TIT2(encoding=3, text=metadata['title']))
                 audio.tags.add(TPE1(encoding=3, text=metadata['artist']))
                 audio.tags.add(TALB(encoding=3, text=metadata['album']))
-                audio.tags.add(TCON(encoding=3, text=metadata['genre']))
+                audio.tags.add(TCON(encoding=3, text=genre_val))
                 audio.tags.add(TRCK(encoding=3, text=str(metadata.get('track_number', '1'))))
                 
                 if metadata.get('lyrics'):
@@ -308,6 +627,21 @@ class MediaProcessor:
                 
                 if metadata.get('year'):
                     audio.tags.add(TDRC(encoding=3, text=str(metadata['year'])))
+                
+                # Inyectar frames TXXX de MusicBrainz (MBIDs) y original date (TDOR)
+                from mutagen.id3 import TXXX, TDOR
+                if metadata.get('musicbrainz_track_id'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Track Id', text=[metadata['musicbrainz_track_id']]))
+                if metadata.get('musicbrainz_album_id'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Id', text=[metadata['musicbrainz_album_id']]))
+                if metadata.get('musicbrainz_artist_id'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Artist Id', text=[metadata['musicbrainz_artist_id']]))
+                if metadata.get('musicbrainz_albumartist_id'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Artist Id', text=[metadata['musicbrainz_albumartist_id']]))
+                if metadata.get('musicbrainz_releasegroup_id'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Release Group Id', text=[metadata['musicbrainz_releasegroup_id']]))
+                if metadata.get('original_date'):
+                    audio.tags.add(TDOR(encoding=3, text=[str(metadata['original_date'])]))
                 
                 if artwork_bytes:
                     audio.tags.add(APIC(
@@ -376,21 +710,71 @@ if __name__ == "__main__":
         url = sys.argv[2]
         task_id = sys.argv[3]
         try:
-            metadata = MediaProcessor.download_audio(url, task_id)
-            suggested_genre = MediaProcessor.fetch_genre_multi_provider(metadata)
-            metadata['genre'] = suggested_genre
+            result = MediaProcessor.download_audio(url, task_id)
             
-            # Fetch lyrics
-            lyrics = fetch_lyrics_from_lrclib(metadata['artist'], metadata['title'])
-            metadata['lyrics'] = lyrics
-            
-            # Download cover
-            if metadata.get('artwork_url'):
-                art_path = download_artwork(metadata['artwork_url'], task_id)
-                if art_path:
-                    metadata['artwork_path'] = art_path
-            
-            print(json.dumps({"success": True, "metadata": metadata}))
+            if result.get("is_playlist"):
+                tracks = result["tracks"]
+                genres_suggested = []
+                artwork_cache = {}
+                for t in tracks:
+                    sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
+                    t['genre'] = sug_genre
+                    genres_suggested.append(sug_genre)
+                    
+                    lyrics = fetch_lyrics_from_lrclib(t['artist'], t['title'])
+                    t['lyrics'] = lyrics
+                
+                # Descargar carátulas individuales usando caché de álbum original
+                for t in tracks:
+                    art_url = t.get('artwork_url')
+                    if art_url:
+                        album_key = t.get('album', '') or 'Unknown Album'
+                        if album_key in artwork_cache:
+                            t['artwork_path'] = artwork_cache[album_key]
+                        else:
+                            art_path = download_artwork(art_url, f"{task_id}_{len(artwork_cache)}")
+                            if art_path:
+                                t['artwork_path'] = art_path
+                                artwork_cache[album_key] = art_path
+                
+                if genres_suggested:
+                    from collections import Counter
+                    most_common = Counter(genres_suggested).most_common(1)
+                    suggested_global_genre = most_common[0][0] if most_common else "General-Music"
+                else:
+                    suggested_global_genre = "General-Music"
+                
+                tracks_with_artwork = sum(1 for t in tracks if t.get('artwork_path'))
+                tracks_with_lyrics = sum(1 for t in tracks if t.get('lyrics'))
+                
+                print(json.dumps({
+                    "success": True,
+                    "is_playlist": True,
+                    "playlist_title": result["playlist_title"],
+                    "playlist_artist": result["playlist_artist"],
+                    "genre": suggested_global_genre,
+                    "tracks_with_artwork": tracks_with_artwork,
+                    "tracks_with_lyrics": tracks_with_lyrics,
+                    "tracks": tracks
+                }))
+            else:
+                metadata = result
+                suggested_genre = MediaProcessor.fetch_genre_multi_provider(metadata)
+                metadata['genre'] = suggested_genre
+                
+                lyrics = fetch_lyrics_from_lrclib(metadata['artist'], metadata['title'])
+                metadata['lyrics'] = lyrics
+                
+                if metadata.get('artwork_url'):
+                    art_path = download_artwork(metadata['artwork_url'], task_id)
+                    if art_path:
+                        metadata['artwork_path'] = art_path
+                
+                print(json.dumps({
+                    "success": True,
+                    "is_playlist": False,
+                    "metadata": metadata
+                }))
         except Exception as e:
             print(json.dumps({"success": False, "error": str(e)}))
             sys.exit(1)
@@ -411,7 +795,7 @@ if __name__ == "__main__":
             current_artist = "Unknown"
             current_title = "Unknown"
             current_album = "Unknown"
-
+ 
             if ext == "mp3":
                 try:
                     audio = MP3(local_path, ID3=ID3)
@@ -428,10 +812,10 @@ if __name__ == "__main__":
                     current_album = audio.get('\xa9alb', ['Unknown'])[0]
                 except:
                     pass
-
+ 
             if current_title == "Unknown":
                 current_title = os.path.basename(local_path).replace(f".{ext}", "")
-
+ 
             metadata = {
                 "filepath": local_path,
                 "title": clean_and_romaji(current_title),
@@ -440,7 +824,7 @@ if __name__ == "__main__":
                 "track_number": "1",
                 "raw_tags": []
             }
-
+ 
             suggested_genre = MediaProcessor.fetch_genre_multi_provider(metadata)
             metadata['genre'] = suggested_genre
             
@@ -465,22 +849,132 @@ if __name__ == "__main__":
         metadata_str = sys.argv[3]
         try:
             metadata = json.loads(metadata_str)
-            MediaProcessor.write_id3_tags(filepath, metadata)
-            final_path = MediaProcessor.move_to_library(filepath, metadata)
             
-            # Clean up temp files if they were downloaded
-            if metadata.get('artwork_path') and os.path.exists(metadata['artwork_path']):
-                try:
-                    os.remove(metadata['artwork_path'])
-                except:
-                    pass
-            
-            try:
-                MediaProcessor.trigger_navidrome_scan()
-            except Exception as e:
-                logger.error(f"Failed to restart Navidrome container: {e}")
+            if metadata.get("is_playlist"):
+                tracks = metadata.get("tracks", [])
+                genre = metadata.get("genre", "General-Music")
+                is_album_mode = metadata.get("is_album_mode", True)
                 
-            print(json.dumps({"success": True, "final_path": final_path}))
+                # Si está activado el modo Álbum, homogeneizar los tracks antes de guardar y mover
+                if is_album_mode:
+                    artists_list = [t.get('artist') for t in tracks if t.get('artist') and t.get('artist') != 'Unknown Artist']
+                    albums_list = [t.get('album') for t in tracks if t.get('album') and t.get('album') != 'Unknown Album']
+                    years_list = [t.get('year') for t in tracks if t.get('year')]
+                    
+                    majority_artist = None
+                    majority_album = metadata.get("playlist_title") or "Unknown Album"
+                    majority_year = ""
+                    majority_mb_album_id = ""
+                    majority_mb_artist_id = ""
+                    majority_mb_albumartist_id = ""
+                    majority_mb_releasegroup_id = ""
+                    majority_artwork_path = ""
+                    
+                    from collections import Counter
+                    if artists_list:
+                        art_counter = Counter(artists_list).most_common(1)
+                        if art_counter[0][1] >= len(artists_list) * 0.4:
+                            majority_artist = art_counter[0][0]
+                    
+                    if albums_list:
+                        alb_counter = Counter(albums_list).most_common(1)
+                        if alb_counter[0][1] >= len(albums_list) * 0.4:
+                            majority_album = alb_counter[0][0]
+                    
+                    if years_list:
+                        yr_counter = Counter(years_list).most_common(1)
+                        majority_year = yr_counter[0][0]
+                    
+                    # Buscar la carátula y MBIDs del álbum mayoritario
+                    for t in tracks:
+                        if t.get('album') == majority_album:
+                            if t.get('artwork_path'):
+                                majority_artwork_path = t['artwork_path']
+                            if t.get('musicbrainz_album_id'):
+                                majority_mb_album_id = t['musicbrainz_album_id']
+                                majority_mb_albumartist_id = t.get('musicbrainz_albumartist_id', '')
+                                majority_mb_releasegroup_id = t.get('musicbrainz_releasegroup_id', '')
+                                if t.get('artist') == majority_artist:
+                                    majority_mb_artist_id = t.get('musicbrainz_artist_id', '')
+                                break
+                    
+                    if not majority_artwork_path:
+                        for t in tracks:
+                            if t.get('artwork_path'):
+                                majority_artwork_path = t['artwork_path']
+                                break
+                                
+                    if not majority_mb_albumartist_id and majority_mb_artist_id:
+                        majority_mb_albumartist_id = majority_mb_artist_id
+                    
+                    if majority_artist:
+                        logger.info(f"Finalize: Homogeneizando tracks a Artista: '{majority_artist}', Álbum: '{majority_album}'")
+                        for t in tracks:
+                            if majority_artwork_path:
+                                t['artwork_path'] = majority_artwork_path
+                            
+                            t['album'] = majority_album
+                            if majority_year:
+                                t['year'] = majority_year
+                            if majority_mb_album_id:
+                                t['musicbrainz_album_id'] = majority_mb_album_id
+                            if majority_mb_albumartist_id:
+                                t['musicbrainz_albumartist_id'] = majority_mb_albumartist_id
+                            if majority_mb_releasegroup_id:
+                                t['musicbrainz_releasegroup_id'] = majority_mb_releasegroup_id
+                                
+                            if t.get('artist') != majority_artist:
+                                t['artist'] = majority_artist
+                                if majority_mb_artist_id:
+                                    t['musicbrainz_artist_id'] = majority_mb_artist_id
+
+                final_paths = []
+                artwork_paths_to_clean = set()
+                
+                for t in tracks:
+                    t['genre'] = genre
+                    MediaProcessor.write_id3_tags(t['filepath'], t)
+                    fpath = MediaProcessor.move_to_library(t['filepath'], t)
+                    final_paths.append(fpath)
+                    
+                    if t.get('artwork_path'):
+                        artwork_paths_to_clean.add(t['artwork_path'])
+                
+                for ap in artwork_paths_to_clean:
+                    if os.path.exists(ap):
+                        try:
+                            os.remove(ap)
+                        except:
+                            pass
+                
+                try:
+                    MediaProcessor.trigger_navidrome_scan()
+                except Exception as e:
+                    logger.error(f"Failed to restart Navidrome container: {e}")
+                
+                album_dir = os.path.dirname(final_paths[0]) if final_paths else "M:\\music"
+                print(json.dumps({
+                    "success": True, 
+                    "final_path": album_dir,
+                    "playlist_completed": True,
+                    "tracks_count": len(final_paths)
+                }))
+            else:
+                MediaProcessor.write_id3_tags(filepath, metadata)
+                final_path = MediaProcessor.move_to_library(filepath, metadata)
+                
+                if metadata.get('artwork_path') and os.path.exists(metadata['artwork_path']):
+                    try:
+                        os.remove(metadata['artwork_path'])
+                    except:
+                        pass
+                
+                try:
+                    MediaProcessor.trigger_navidrome_scan()
+                except Exception as e:
+                    logger.error(f"Failed to restart Navidrome container: {e}")
+                    
+                print(json.dumps({"success": True, "final_path": final_path}))
         except Exception as e:
             print(json.dumps({"success": False, "error": str(e)}))
             sys.exit(1)
