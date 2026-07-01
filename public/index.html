@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Importador de Música SP-Agent</title>
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Google Fonts: Outfit -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- HEADER -->
+    <header class="app-header">
+      <div class="logo-area">
+        <span class="pulse-dot"></span>
+        <h1>SP-Music Importer</h1>
+      </div>
+      <p class="subtitle">Importa y organiza tu música directamente a Navidrome</p>
+    </header>
+
+    <!-- STEP 1: INPUT URL -->
+    <section class="section card glass" id="step-analyze">
+      <div class="input-group">
+        <label for="yt-url">Enlace de YouTube Music (Canción, Álbum o Playlist)</label>
+        <div class="input-wrapper">
+          <input type="text" id="yt-url" placeholder="https://music.youtube.com/..." autocomplete="off">
+          <button id="btn-analyze" class="btn btn-primary">
+            <span>Analizar</span>
+            <div class="spinner hide" id="spinner-analyze"></div>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOADING STATE -->
+    <div class="status-panel glass card hide" id="status-panel">
+      <div class="loading-wave">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <p id="status-text">Procesando enlace...</p>
+      <div class="progress-bar-container">
+        <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <!-- ERROR PANEL -->
+    <div class="error-panel glass card hide" id="error-panel">
+      <div class="error-icon">⚠️</div>
+      <div class="error-msg">
+        <h3>Ha ocurrido un error</h3>
+        <p id="error-text">Detalles del error aquí...</p>
+      </div>
+      <button id="btn-error-close" class="btn btn-secondary btn-sm">Cerrar</button>
+    </div>
+
+    <!-- STEP 2: METADATA EDITOR & CONFIRMATION -->
+    <section class="section hide" id="step-editor">
+      
+      <!-- ALBUM SUMMARY CARD -->
+      <div class="album-summary-card glass card">
+        <div class="album-art-placeholder" id="summary-art">
+          <span class="note-icon">🎵</span>
+        </div>
+        <div class="album-details">
+          <h2 id="summary-title">Nombre del Álbum / Playlist</h2>
+          <p id="summary-artist" class="artist-sub">Artista o Canal</p>
+          <div class="badge-row">
+            <span class="badge" id="badge-tracks">0 pistas</span>
+            <span class="badge" id="badge-lyrics">0 con letra</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTROLS CARD -->
+      <div class="controls-card glass card">
+        <h3>Configuración de Destino</h3>
+        <div class="form-row">
+          <div class="form-col">
+            <label for="select-genre">Carpeta / Categoría</label>
+            <select id="select-genre">
+              <!-- Cargado dinámicamente -->
+            </select>
+          </div>
+          <div class="form-col">
+            <label for="toggle-album-mode">Modo de Organización</label>
+            <div class="toggle-container" id="toggle-album-container">
+              <span id="album-mode-label">📀 Álbum (Homogéneo)</span>
+              <button class="toggle-btn active" id="btn-toggle-mode"></button>
+            </div>
+          </div>
+        </div>
+        <p class="help-text" id="mode-desc-text">
+          Se unificarán todos los temas bajo el mismo artista, año y carátula del álbum.
+        </p>
+      </div>
+
+      <!-- TRACKLIST -->
+      <div class="tracklist-container">
+        <h3>Lista de Canciones</h3>
+        <div class="tracklist-scroll" id="tracklist-items">
+          <!-- Renderizado dinámicamente -->
+        </div>
+      </div>
+
+      <!-- FLOATING ACTION FOOTER -->
+      <div class="floating-action-footer">
+        <button id="btn-import" class="btn btn-import-action">
+          <span>Importar a la Biblioteca (M:\)</span>
+          <div class="spinner hide" id="spinner-import"></div>
+        </button>
+      </div>
+
+    </section>
+
+    <!-- SUCCESS PANEL -->
+    <section class="section card glass success-panel hide" id="step-success">
+      <div class="success-checkmark">
+        <div class="check-icon">
+          <span class="icon-line line-tip"></span>
+          <span class="icon-line line-long"></span>
+          <div class="icon-circle"></div>
+          <div class="icon-fix"></div>
+        </div>
+      </div>
+      <h2>¡Importación Exitosa!</h2>
+      <p id="success-message">Se han organizado correctamente las canciones en tu biblioteca.</p>
+      <div class="success-actions">
+        <button id="btn-success-done" class="btn btn-primary">Volver al Inicio</button>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

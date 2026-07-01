@@ -32,7 +32,8 @@ export async function setBotCommands(botInstance: Bot) {
     { command: 'autofix', description: 'Activa/Desactiva auto-corrección de Twitter' },
     { command: 'config', description: 'Configurar parámetros de personalidad (0-100)' },
     { command: 'playlist', description: 'Descarga y organiza canciones en tu biblioteca' },
-    { command: 'fix', description: 'Corrige metadatos de un archivo local del servidor' }
+    { command: 'fix', description: 'Corrige metadatos de un archivo local del servidor' },
+    { command: 'app', description: 'Abrir el Importador de Música (Mini App)' }
   ];
 
   try {
@@ -125,6 +126,24 @@ setupBotHandlers(bot);
 export async function initializeBot() {
   await setBotCommands(bot);
   
+  // Configurar botón de menú de chat para la Mini App
+  try {
+    if (config.webhookUrl) {
+      await bot.api.setChatMenuButton({
+        menu_button: {
+          type: 'web_app',
+          text: 'Importar 🎵',
+          web_app: {
+            url: config.webhookUrl
+          }
+        }
+      });
+      console.log(`[Bot] ✅ Chat Menu Button configurado a: ${config.webhookUrl}`);
+    }
+  } catch (e) {
+    console.error('[Bot] ❌ Error configurando Chat Menu Button:', e);
+  }
+
   // Inicializar servicio de bots gestionados
   const { ManagedBotService } = await import('./manager.js');
   await ManagedBotService.init(bot);

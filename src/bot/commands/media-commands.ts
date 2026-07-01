@@ -3,8 +3,9 @@ import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { isAdmin } from '../helpers.js';
+import { config } from '../../config.js';
 
-const pendingTasks = new Map<string, any>();
+export const pendingTasks = new Map<string, any>();
 
 let pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
 if (process.platform === 'win32' && existsSync(join(process.cwd(), 'venv', 'Scripts', 'python.exe'))) {
@@ -15,7 +16,7 @@ if (process.platform === 'win32' && existsSync(join(process.cwd(), 'venv', 'Scri
   pythonCmd = join(process.cwd(), 'venv', 'bin', 'python');
 }
 
-function runMediaProcessor(args: string[]): Promise<any> {
+export function runMediaProcessor(args: string[]): Promise<any> {
   return new Promise((resolve, reject) => {
     console.log(`[MediaProcessor] Spawning: ${pythonCmd} scripts/media_processor.py ${args.join(' ')}`);
     const proc = spawn(pythonCmd, ['scripts/media_processor.py', ...args]);
@@ -343,5 +344,20 @@ export function registerMediaCommands(bot: Bot) {
       const safeErrorMsg = `❌ Ocurrió un error escribiendo en el almacenamiento: ${e.message}`.substring(0, 3500);
       await ctx.editMessageText(safeErrorMsg);
     }
+  });
+
+  bot.command('app', isAdminMiddleware, async (ctx) => {
+    const url = config.webhookUrl || 'https://localhost:3000';
+    const keyboard = new InlineKeyboard().webApp("Abrir Importador 🎵", url);
+
+    await ctx.reply(
+      "🎵 <b>Importador de Música (Mini App)</b>\n\n" +
+      "Usa la interfaz gráfica interactiva para buscar/pegar listas o álbumes de YouTube Music, refinar sus metadatos y organizarlos de forma impecable.",
+      {
+        reply_markup: keyboard,
+        parse_mode: 'HTML',
+        message_thread_id: ctx.message?.message_thread_id
+      }
+    );
   });
 }

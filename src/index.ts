@@ -1,4 +1,9 @@
+import express from 'express';
+import path from 'path';
 import { bot, initializeBot } from './bot/index.js';
+import { webhookCallback } from 'grammy';
+import { config } from './config.js';
+import { apiRouter } from './bot/api.js';
 
 const start = async () => {
   console.log('[System] SP-Agent starting up...');
@@ -6,59 +11,67 @@ const start = async () => {
   // Initialize bot settings and commands
   await initializeBot();
   
-  // Iniciar el bot (Webhooks o Long Polling)
-  const { config } = await import('./config.js');
-  if (config.webhookUrl) {
-    const { createServer } = await import('http');
-    const { webhookCallback } = await import('grammy');
-    const handleMainBot = webhookCallback(bot, 'http');
+  const app = express();
+  app.use(express.json());
 
-    const server = createServer(async (req, res) => {
-      // Rutear actualizaciones a bots gestionados (/bot/<token>)
-      const match = req.url?.match(/^\/bot\/([\w:-]+)$/);
-      if (match) {
-        const token = match[1];
-        const { ManagedBotService } = await import('./bot/manager.js');
-        const subBot = ManagedBotService.getBotByToken(token);
-        if (subBot) {
-          return webhookCallback(subBot, 'http')(req, res);
+  // Servir archivos estáticos de la Mini App (carpeta /public)
+  app.use(express.static(path.join(process.cwd(), 'public')));
+
+  // Registrar las rutas de API
+  app.use('/api', apiRouter);
+
+  // Manejar webhook del bot principal
+  const handleMainBot = webhookCallback(bot, 'express');
+
+  // Rutear actualizaciones a bots gestionados (/bot/<token>)
+  app.post('/bot/:token', async (req, res, next) => {
+    const token = req.params.token;
+    const { ManagedBotService } = await import('./bot/manager.js');
+    const subBot = ManagedBotService.getBotByToken(token);
+    if (subBot) {
+      return webhookCallback(subBot, 'express')(req, res, next);
+    }
+    res.status(404).send('Not Found');
+  });
+
+  // Rutear actualización al bot principal (/main o /)
+  app.post(['/', '/main'], (req, res, next) => {
+    handleMainBot(req, res, next);
+  });
+
+  // Fallback para index.html (SPA routing)
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+  });
+
+  // Iniciar el servidor Express
+  app.listen(config.port, async () => {
+    console.log(`[System] 🚀 Servidor Express activo en el puerto ${config.port}`);
+    
+    if (config.webhookUrl) {
+      const mainWebhookPath = `${config.webhookUrl}/main`;
+      await bot.api.setWebhook(mainWebhookPath);
+      console.log(`[Telegram] 🌐 Webhook principal registrado: ${mainWebhookPath}`);
+    } else {
+      // Iniciar con Long Polling (desarrollo / local)
+      bot.start({
+        onStart: (botInfo) => {
+          console.log(`[Telegram] 🚀 Bot iniciado en modo Long Polling como @${botInfo.username}`);
         }
-      }
-
-      // Rutear actualización al bot principal (/main o /)
-      if (req.url === '/' || req.url === '/main') {
-        return handleMainBot(req, res);
-      }
-
-      res.statusCode = 404;
-      res.end('Not Found');
-    });
-
-    // Registrar el webhook del bot principal en Telegram
-    const mainWebhookPath = `${config.webhookUrl}/main`;
-    await bot.api.setWebhook(mainWebhookPath);
-    console.log(`[Telegram] 🌐 Webhook principal registrado: ${mainWebhookPath}`);
-
-    server.listen(config.port, () => {
-      console.log(`[Telegram] 🚀 Servidor HTTP de Webhooks activo en el puerto ${config.port}`);
-    });
-  } else {
-    // Iniciar con Long Polling (desarrollo / local)
-    bot.start({
-      onStart: (botInfo) => {
-        console.log(`[Telegram] 🚀 Bot iniciado en modo Long Polling como @${botInfo.username}`);
-      }
-    });
-  }
+      });
+    }
+  });
 
   // Manejar apagado ordenado
   process.once('SIGINT', () => {
     bot.stop();
     console.log('[System] Shutting down gracefully.');
+    process.exit(0);
   });
   process.once('SIGTERM', () => {
     bot.stop();
     console.log('[System] Shutting down gracefully.');
+    process.exit(0);
   });
 };
 

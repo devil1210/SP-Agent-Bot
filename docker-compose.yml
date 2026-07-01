@@ -18,6 +18,8 @@ services:
       - POSTGREST_ANON_KEY=${POSTGREST_ANON_KEY}
       - ZEEPUB_API_URL=${ZEEPUB_API_URL}
       - ZEEPUB_API_KEY=${ZEEPUB_API_KEY}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - PORT=${PORT}
     logging:
       driver: "json-file"
       options:
@@ -26,4 +28,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /media/music:/media/music
+    ports:
+      - "3000:8080"
 
