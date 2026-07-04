@@ -881,13 +881,13 @@ class MediaProcessor:
                     audio['----:com.apple.iTunes:ISRC'] = [metadata['isrc'].encode('utf-8')]
                 
                 # Tags de ordenación (Sort Tags)
-                audio['soar'] = [(metadata.get('artist_sort') or metadata['artist']).encode('utf-8')]
+                audio['soar'] = [metadata.get('artist_sort') or metadata['artist']]
                 audio['----:com.apple.iTunes:ARTISTSORT'] = [(metadata.get('artist_sort') or metadata['artist']).encode('utf-8')]
-                audio['soaa'] = [(metadata.get('albumartist_sort') or metadata.get('album_artist') or metadata['artist']).encode('utf-8')]
+                audio['soaa'] = [metadata.get('albumartist_sort') or metadata.get('album_artist') or metadata['artist']]
                 audio['----:com.apple.iTunes:ALBUMARTISTSORT'] = [(metadata.get('albumartist_sort') or metadata.get('album_artist') or metadata['artist']).encode('utf-8')]
-                audio['soal'] = [metadata['album'].encode('utf-8')]
+                audio['soal'] = [metadata['album']]
                 audio['----:com.apple.iTunes:ALBUMSORT'] = [metadata['album'].encode('utf-8')]
-                audio['sonm'] = [metadata['title'].encode('utf-8')]
+                audio['sonm'] = [metadata['title']]
                 audio['----:com.apple.iTunes:TITLESORT'] = [metadata['title'].encode('utf-8')]
                 
                 if artwork_bytes:
