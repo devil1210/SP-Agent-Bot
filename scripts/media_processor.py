@@ -463,17 +463,33 @@ class MediaProcessor:
             'format': 'bestaudio/best',  # Permite descargar cualquier formato de audio óptimo
             'remote_components': ['ejs:github'],
             'js_runtimes': {'node': {}},
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'm4a',
-                'preferredquality': '0',
-            }],
+            'postprocessors': [
+                {
+                    'key': 'SponsorBlock',
+                    'when': 'pre_process',
+                    'categories': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                },
+                {
+                    'key': 'ModifyChapters',
+                    'remove_sponsor_segments': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                },
+                {
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'm4a',
+                    'preferredquality': '0',
+                }
+            ],
             'outtmpl': out_template,
             'quiet': True,
             'noprogress': True,
             'no_warnings': True,
             'extract_flat': False,
-            'ignoreerrors': True
+            'ignoreerrors': True,
+            'retries': 10,
+            'fragment_retries': 10,
+            'concurrent_fragment_downloads': 5,
+            'sleep_interval': 1,
+            'max_sleep_interval': 3
         }
         cookies_path = os.getenv("COOKIES_PATH")
         if cookies_path and os.path.exists(cookies_path):
