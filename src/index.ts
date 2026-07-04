@@ -20,8 +20,11 @@ const start = async () => {
   // Registrar las rutas de API
   app.use('/api', apiRouter);
 
-  // Manejar webhook del bot principal
-  const handleMainBot = webhookCallback(bot, 'express');
+  // Manejar webhook del bot principal si está configurado
+  let handleMainBot: any = null;
+  if (config.webhookUrl) {
+    handleMainBot = webhookCallback(bot, 'express');
+  }
 
   // Rutear actualizaciones a bots gestionados (/bot/<token>)
   app.post('/bot/:token', async (req: Request, res: Response, next: NextFunction) => {
@@ -36,7 +39,11 @@ const start = async () => {
 
   // Rutear actualización al bot principal (/main o /)
   app.post(['/', '/main'], (req: Request, res: Response, next: NextFunction) => {
-    handleMainBot(req, res);
+    if (handleMainBot) {
+      handleMainBot(req, res);
+    } else {
+      res.status(501).send('Webhook not configured (running in long polling mode)');
+    }
   });
 
   // Fallback para index.html (SPA routing)
