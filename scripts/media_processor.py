@@ -86,6 +86,17 @@ def clean_and_romaji(text: str) -> str:
     romaji_text = " ".join([item.get('hepburn', item.get('orig', '')).capitalize() for item in result])
     return romaji_text if romaji_text.strip() else text
 
+def clean_title_for_query(title: str) -> str:
+    """Limpia el título de colaboraciones comunes para mejorar la coincidencia en búsquedas estructuradas."""
+    import re
+    if not title:
+        return title
+    # Remover (feat. ...), [feat. ...], (with ...), [with ...] de forma insensible a mayúsculas
+    t = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', title)
+    # Remover paréntesis o corchetes vacíos o sobrantes
+    t = re.sub(r'\(\s*\)|\[\s*\]', '', t)
+    return t.strip()
+
 def download_artwork(url: str, task_id: str) -> str:
     """Descarga la carátula oficial en alta resolución y la guarda temporalmente."""
     if not url:
@@ -631,7 +642,29 @@ class MediaProcessor:
         genres_found = []
         acoustid_success = False
 
-        # 1. Intentar identificación por Huella de Audio (AcoustID / Picard Scan)
+        artist_q = metadata['artist']
+        title_q = metadata['title']
+
+        # 1. Obtener géneros comerciales y artwork desde iTunes/Deezer como base
+        itunes = fetch_from_itunes(artist_q, title_q)
+        if itunes.get('genre'):
+            genres_found.append(itunes['genre'])
+            if not metadata.get('artwork_url') and itunes.get('artwork_url'):
+                metadata['artwork_url'] = itunes['artwork_url']
+            for key in ['year', 'album_artist', 'track_number', 'track_total']:
+                if itunes.get(key) and not metadata.get(key):
+                    metadata[key] = itunes[key]
+
+        deezer = fetch_from_deezer(artist_q, title_q)
+        if deezer.get('genre'):
+            genres_found.append(deezer['genre'])
+            if not metadata.get('artwork_url') and deezer.get('artwork_url'):
+                metadata['artwork_url'] = deezer['artwork_url']
+            for key in ['year', 'album_artist', 'track_number']:
+                if deezer.get(key) and not metadata.get(key):
+                    metadata[key] = deezer[key]
+
+        # 2. Intentar identificación por Huella de Audio (AcoustID / Picard Scan)
         if filepath and os.path.exists(filepath):
             logger.info(f"Iniciando escaneo AcoustID para: {os.path.basename(filepath)}")
             acoustid_res = fetch_from_acoustid(filepath)
@@ -673,24 +706,36 @@ class MediaProcessor:
                     acoustid_success = True
                     logger.info(f"Identificación por huella AcoustID exitosa: {mb_meta['artist']} - {mb_meta['title']}")
 
-        # Si AcoustID falló o no coincide, hacemos fallback a texto
+        # 3. Si AcoustID falló o no coincide, hacemos fallback a texto en MusicBrainz
         if not acoustid_success:
-            artist_q = metadata['artist']
-            title_q = metadata['title']
             album_q = metadata.get('album', '')
-            
             mb_resolved = False
             try:
+                # Limpiar el título de colaboraciones para mejorar la coincidencia en MusicBrainz
+                clean_title = clean_title_for_query(title_q)
+                
                 # Buscar por texto en MusicBrainz primero para conseguir toda la metadata rica
-                query = f'artist:"{artist_q}" AND recording:"{title_q}"'
+                query = f'artist:"{artist_q}" AND recording:"{clean_title}"'
                 if album_q and album_q != 'Unknown Album':
                     query += f' AND release:"{album_q}"'
                 
                 res = musicbrainzngs.search_recordings(query=query, limit=1)
-                if not res['recording-list'] and album_q and album_q != 'Unknown Album':
+                
+                # Fallback sin álbum
+                if not res.get('recording-list'):
+                    res = musicbrainzngs.search_recordings(artist=artist_q, recording=clean_title, limit=1)
+                    
+                # Fallback con título original
+                if not res.get('recording-list'):
+                    query_orig = f'artist:"{artist_q}" AND recording:"{title_q}"'
+                    if album_q and album_q != 'Unknown Album':
+                        query_orig += f' AND release:"{album_q}"'
+                    res = musicbrainzngs.search_recordings(query=query_orig, limit=1)
+                    
+                if not res.get('recording-list'):
                     res = musicbrainzngs.search_recordings(artist=artist_q, recording=title_q, limit=1)
                 
-                if res['recording-list']:
+                if res and res.get('recording-list'):
                     mb_id = res['recording-list'][0]['id']
                     mb_meta = fetch_from_musicbrainz_id(mb_id)
                     if mb_meta:
@@ -728,44 +773,31 @@ class MediaProcessor:
             except Exception as e:
                 logger.error(f"Error en fallback de texto de MusicBrainz: {e}")
                 
+            # Si tampoco resolvió MusicBrainz por texto, nos quedamos con la metadata de iTunes/Deezer ya cargada
             if not mb_resolved:
-                # 2. Intentar iTunes
-                itunes = fetch_from_itunes(artist_q, title_q)
-                if itunes.get('genre'):
-                    genres_found.append(itunes['genre'])
+                if itunes.get('title'):
                     metadata['artist'] = clean_and_romaji(itunes['artist'])
                     metadata['title'] = clean_and_romaji(itunes['title'])
                     metadata['album'] = clean_and_romaji(itunes['album'])
-                    if itunes.get('artwork_url'):
-                        metadata['artwork_url'] = itunes['artwork_url']
-                    if itunes.get('year'):
-                        metadata['year'] = itunes['year']
-                    for key in ['album_artist', 'track_number', 'track_total']:
-                        if itunes.get(key):
-                            metadata[key] = itunes[key]
-                
-                # 3. Intentar Deezer
-                else:
-                    deezer = fetch_from_deezer(artist_q, title_q)
-                    if deezer.get('genre'):
-                        genres_found.append(deezer['genre'])
-                    if deezer.get('title'):
-                        metadata['artist'] = clean_and_romaji(deezer['artist'])
-                        metadata['title'] = clean_and_romaji(deezer['title'])
-                        metadata['album'] = clean_and_romaji(deezer['album'])
-                    if deezer.get('artwork_url'):
-                        metadata['artwork_url'] = deezer['artwork_url']
-                    if deezer.get('year'):
-                        metadata['year'] = deezer['year']
-                    for key in ['album_artist', 'track_number']:
-                        if deezer.get(key):
-                            metadata[key] = deezer[key]
+                elif deezer.get('title'):
+                    metadata['artist'] = clean_and_romaji(deezer['artist'])
+                    metadata['title'] = clean_and_romaji(deezer['title'])
+                    metadata['album'] = clean_and_romaji(deezer['album'])
 
         # Guardar todos los géneros concatenados por punto y coma en metadata para inyectar al tag físico
-        metadata['all_genres'] = "; ".join(sorted(list(set([g.title() for g in genres_found if g]))))
+        seen_genres = set()
+        unique_genres = []
+        for g in genres_found:
+            if g:
+                g_title = g.title().strip()
+                if g_title.lower() not in seen_genres:
+                    seen_genres.add(g_title.lower())
+                    unique_genres.append(g_title)
+                    
+        metadata['all_genres'] = "; ".join(sorted(unique_genres))
 
         # Unir para evaluar el clasificador local de carpetas
-        classification_tags = genres_found + [t.lower() for t in metadata.get('raw_tags', [])]
+        classification_tags = [g.lower() for g in unique_genres] + [t.lower() for t in metadata.get('raw_tags', [])]
 
         # Evaluar el Embudo de decisión de tu servidor
         if any(kw in g for g in classification_tags for kw in ["anime", "j-pop", "j-rock", "japanese", "vocaloid"]):
