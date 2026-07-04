@@ -105,6 +105,24 @@ def clean_artist_for_query(artist: str) -> str:
     parts = re.split(r',|;| featuring | feat\.? | and | y | & |\bft\b', artist, flags=re.IGNORECASE)
     return parts[0].strip()
 
+def get_decade_string(year_str: str) -> str:
+    """Calcula la década a partir de una fecha/año al estilo del plugin Decade de Picard."""
+    import re
+    if not year_str:
+        return ""
+    try:
+        match = re.search(r'\b(19\d{2}|20\d{2})\b', year_str)
+        if not match:
+            return ""
+        year = int(match.group(1))
+        decade_val = (year // 10) * 10
+        if 1920 <= decade_val <= 2000:
+            return f"{str(decade_val)[2:]}s"  # "80s", "90s", "00s"
+        else:
+            return f"{decade_val}s"           # "2010s", "2020s"
+    except:
+        return ""
+
 def download_artwork(url: str, task_id: str) -> str:
     """Descarga la carátula oficial en alta resolución y la guarda temporalmente."""
     if not url:
@@ -953,6 +971,15 @@ class MediaProcessor:
         # Guardar todos los géneros concatenados por punto y coma en metadata para inyectar al tag físico
         seen_genres = set()
         unique_genres = []
+        
+        # Calcular década automáticamente (Plugin Decade de Picard)
+        date_for_decade = metadata.get('original_date') or metadata.get('year') or metadata.get('release_date')
+        if date_for_decade:
+            decade_str = get_decade_string(str(date_for_decade))
+            if decade_str:
+                seen_genres.add(decade_str.lower())
+                unique_genres.append(decade_str)
+                
         for g in genres_found:
             if g:
                 g_title = g.title().strip()
