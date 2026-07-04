@@ -2,6 +2,7 @@ import { Bot, Context, InlineKeyboard } from 'grammy';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import os from 'os';
 import { isAdmin } from '../helpers.js';
 import { config } from '../../config.js';
 
@@ -346,8 +347,21 @@ export function registerMediaCommands(bot: Bot) {
     }
   });
 
+  function getLocalIpAddress(): string {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const net of interfaces[name] || []) {
+        if (net.family === 'IPv4' && !net.internal) {
+          return net.address;
+        }
+      }
+    }
+    return '127.0.0.1';
+  }
+
   bot.command('app', isAdminMiddleware, async (ctx) => {
-    const url = config.webhookUrl || 'https://localhost:3000';
+    const localIp = getLocalIpAddress();
+    const url = config.webhookUrl || `http://${localIp}:3000`;
     const keyboard = new InlineKeyboard().webApp("Abrir Importador 🎵", url);
 
     await ctx.reply(
