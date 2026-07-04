@@ -97,6 +97,14 @@ def clean_title_for_query(title: str) -> str:
     t = re.sub(r'\(\s*\)|\[\s*\]', '', t)
     return t.strip()
 
+def clean_artist_for_query(artist: str) -> str:
+    """Limpia la cadena del artista para realizar búsquedas más fiables en MusicBrainz."""
+    import re
+    if not artist:
+        return artist
+    parts = re.split(r',|;| featuring | feat\.? | and | y | & |\bft\b', artist, flags=re.IGNORECASE)
+    return parts[0].strip()
+
 def download_artwork(url: str, task_id: str) -> str:
     """Descarga la carátula oficial en alta resolución y la guarda temporalmente."""
     if not url:
@@ -259,7 +267,7 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
     try:
         res = musicbrainzngs.get_recording_by_id(
             recording_id, 
-            includes=["releases", "artists", "release-groups"]
+            includes=["releases", "artists", "release-groups", "tags"]
         )
         
         recording = res.get("recording", {})
@@ -330,7 +338,7 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
                 try:
                     rel_detail = musicbrainzngs.get_release_by_id(
                         release_id,
-                        includes=["recordings", "artists", "labels", "release-groups"]
+                        includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
                     )
                     release_info = rel_detail.get("release", {})
                     
@@ -412,17 +420,43 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
             except Exception as caa_err:
                 logger.error(f"Error consultando Cover Art Archive para release {release_id}: {caa_err}")
                 
-        genres = []
+        # Agregar etiquetas (tags) de todas las fuentes cruzadas como hace Picard
+        tags_dict = {}
         excluded_tags = {"seen live", "favorites", "fixme", "owned"}
-        for tag in recording.get("tag-list", []):
-            name = tag.get("name", "").lower()
-            if name and name not in excluded_tags:
-                genres.append(name)
-        if 'release_info' in locals() and release_info.get("release-group"):
-            for tag in release_info["release-group"].get("tag-list", []):
-                name = tag.get("name", "").lower()
-                if name and name not in excluded_tags and name not in genres:
-                    genres.append(name)
+        
+        def add_tags(tag_list):
+            if not tag_list:
+                return
+            for tag in tag_list:
+                name = tag.get("name", "").strip().lower()
+                if name and name not in excluded_tags:
+                    try:
+                        count = int(tag.get("count", 1))
+                    except:
+                        count = 1
+                    tags_dict[name] = max(tags_dict.get(name, 0), count)
+        
+        # 1. Tags de la grabación
+        add_tags(recording.get("tag-list"))
+        
+        # 2. Tags de la release y del release group
+        if 'release_info' in locals():
+            add_tags(release_info.get("tag-list"))
+            if release_info.get("release-group"):
+                add_tags(release_info["release-group"].get("tag-list"))
+                
+        # 3. Tags de los artistas involucrados (artist-credit)
+        for credit in artist_credit:
+            if isinstance(credit, dict) and credit.get("artist"):
+                add_tags(credit["artist"].get("tag-list"))
+        if 'release_info' in locals() and release_info.get("artist-credit"):
+            for credit in release_info["artist-credit"]:
+                if isinstance(credit, dict) and credit.get("artist"):
+                    add_tags(credit["artist"].get("tag-list"))
+                    
+        # Ordenar por votos/puntuación de forma descendente y tomar máximo 8
+        sorted_tags = sorted(tags_dict.items(), key=lambda x: x[1], reverse=True)
+        genres = [tag[0].title() for tag in sorted_tags[:8]]
             
         return {
             "title": clean_and_romaji(title),
@@ -842,11 +876,12 @@ class MediaProcessor:
             album_q = metadata.get('album', '')
             mb_resolved = False
             try:
-                # Limpiar el título de colaboraciones para mejorar la coincidencia en MusicBrainz
+                # Limpiar el título y el artista para mejorar la coincidencia en MusicBrainz
                 clean_title = clean_title_for_query(title_q)
+                clean_artist = clean_artist_for_query(artist_q)
                 
                 # Buscar por texto en MusicBrainz primero para conseguir toda la metadata rica
-                query = f'artist:"{artist_q}" AND recording:"{clean_title}"'
+                query = f'artist:"{clean_artist}" AND recording:"{clean_title}"'
                 if album_q and album_q != 'Unknown Album':
                     query += f' AND release:"{album_q}"'
                 
@@ -854,9 +889,9 @@ class MediaProcessor:
                 
                 # Fallback sin álbum
                 if not res.get('recording-list'):
-                    res = musicbrainzngs.search_recordings(artist=artist_q, recording=clean_title, limit=1)
+                    res = musicbrainzngs.search_recordings(artist=clean_artist, recording=clean_title, limit=1)
                     
-                # Fallback con título original
+                # Fallback con título/artista original
                 if not res.get('recording-list'):
                     query_orig = f'artist:"{artist_q}" AND recording:"{title_q}"'
                     if album_q and album_q != 'Unknown Album':
@@ -988,8 +1023,8 @@ class MediaProcessor:
                 if metadata.get('webpage_url'):
                     audio["\xa9cmt"] = f"Downloaded from YouTube: {metadata['webpage_url']}"
                 
-                # Fecha original / año
-                date_val = metadata.get('original_date') or metadata.get('release_date') or metadata.get('year')
+                # Fecha de lanzamiento específica / año
+                date_val = metadata.get('year') or metadata.get('original_date') or metadata.get('release_date')
                 if date_val:
                     audio["\xa9day"] = str(date_val)
                 
@@ -1098,8 +1133,8 @@ class MediaProcessor:
                     comment_text = f"Downloaded from YouTube: {metadata['webpage_url']}"
                     audio.tags.add(COMM(encoding=3, lang='eng', desc='Comment', text=[comment_text]))
                 
-                # Fecha original / año (TDRC)
-                date_val = metadata.get('original_date') or metadata.get('release_date') or metadata.get('year')
+                # Fecha de lanzamiento específica / año (TDRC)
+                date_val = metadata.get('year') or metadata.get('original_date') or metadata.get('release_date')
                 if date_val:
                     audio.tags.add(TDRC(encoding=3, text=str(date_val)))
                 
