@@ -13,7 +13,7 @@ from typing import Dict, Any, List
 import yt_dlp
 import musicbrainzngs
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT, APIC, TDRC, TPE2, TPOS, TPUB, TMED, TXXX, TDOR
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TCON, TRCK, USLT, APIC, TDRC, TPE2, TPOS, TPUB, TMED, TXXX, TDOR, TSOP, TSOA, TSOT, TSO2, TSRC, UFID, COMM, WXXX
 from mutagen.mp4 import MP4, MP4Cover
 
 # Configurar yt-dlp para usar Node.js como runtime JS
@@ -236,6 +236,7 @@ def fetch_from_acoustid(filepath: str) -> dict:
                     logger.info(f"¡Huella identificada exitosamente! AcoustID Score: {r.get('score')} -> MBID: {recording_id}")
                     return {
                         "musicbrainz_id": recording_id,
+                        "acoustid_id": r.get("id"),
                         "acoustid_score": r.get("score")
                     }
     except Exception as e:
@@ -256,15 +257,21 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
             
         title = recording.get("title")
         
+        # 1. Obtener ISRC
+        isrc_list = recording.get("isrc-list", [])
+        isrc = isrc_list[0] if isrc_list else ""
+        
         artist_credit = recording.get("artist-credit", [])
         artist_name = "Unknown Artist"
         mb_artist_id = ""
+        artist_sort = ""
         if artist_credit:
             artist_name = "".join([
                 credit.get("artist", {}).get("name", "") + credit.get("joinphrase", "")
                 for credit in artist_credit if isinstance(credit, dict)
             ]).strip() or artist_credit[0].get("artist", {}).get("name", "Unknown Artist")
             mb_artist_id = artist_credit[0].get("artist", {}).get("id", "")
+            artist_sort = artist_credit[0].get("artist", {}).get("sort-name", "")
             
         album_name = "Unknown Album"
         album_artist_name = ""
@@ -281,6 +288,14 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
         label_name = ""
         barcode = ""
         media_format = ""
+        mb_releasetrack_id = ""
+        
+        # Nuevos campos de Picard
+        release_status = "official"
+        release_type = "album"
+        release_country = "US"
+        release_script = "Latn"
+        albumartist_sort = ""
         
         releases = recording.get("release-list", [])
         if releases:
@@ -308,10 +323,18 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
                     )
                     release_info = rel_detail.get("release", {})
                     
+                    release_status = release_info.get("status", "official")
+                    release_country = release_info.get("country", "US")
+                    release_script = release_info.get("text-representation", {}).get("script", "Latn")
+                    
+                    if release_info.get("release-group"):
+                        release_type = release_info["release-group"].get("type", "album")
+                    
                     # Obtener el nombre del artista del álbum
                     rel_artist_credit = release_info.get("artist-credit", [])
                     if rel_artist_credit:
                         mb_albumartist_id = rel_artist_credit[0].get("artist", {}).get("id", "")
+                        albumartist_sort = rel_artist_credit[0].get("artist", {}).get("sort-name", "")
                         album_artist_name = "".join([
                             credit.get("artist", {}).get("name", "") + credit.get("joinphrase", "")
                             for credit in rel_artist_credit if isinstance(credit, dict)
@@ -338,6 +361,7 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
                                 disc_number = m_idx + 1
                                 track_number = track.get("number") or track.get("position", "")
                                 track_total = len(tracks_list)
+                                mb_releasetrack_id = track.get("id", "")
                                 break
                         if track_number:
                             break
@@ -403,6 +427,7 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
             "musicbrainz_artist_id": mb_artist_id,
             "musicbrainz_albumartist_id": mb_albumartist_id,
             "musicbrainz_releasegroup_id": mb_releasegroup_id,
+            "musicbrainz_releasetrack_id": mb_releasetrack_id,
             "track_number": track_number,
             "track_total": track_total,
             "disc_number": disc_number,
@@ -410,7 +435,14 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
             "catalog_number": catalog_number,
             "label": label_name,
             "barcode": barcode,
-            "media": media_format
+            "media": media_format,
+            "release_status": release_status,
+            "release_type": release_type,
+            "release_country": release_country,
+            "release_script": release_script,
+            "artist_sort": artist_sort or artist_name,
+            "albumartist_sort": albumartist_sort or album_artist_name,
+            "isrc": isrc
         }
     except Exception as e:
         logger.error(f"Error consultando metadatos en MusicBrainz por ID {recording_id}: {e}")
@@ -500,12 +532,21 @@ class MediaProcessor:
                     entry_album = entry.get('album') or playlist_title
                     track_num = str(entry.get('playlist_index') or entry.get('track_number') or (i + 1))
                     
+                    entry_year = entry.get('release_year') or (entry.get('release_date')[:4] if entry.get('release_date') else '') or (entry.get('upload_date')[:4] if entry.get('upload_date') else '')
+                    entry_date = entry.get('release_date') or entry.get('upload_date') or ""
+                    
                     tracks.append({
                         "filepath": filename,
                         "title": clean_and_romaji(entry_title),
                         "artist": clean_and_romaji(entry_artist),
                         "album": clean_and_romaji(entry_album),
                         "track_number": track_num,
+                        "track_total": str(entry.get('track_total') or len(info.get('entries', [])) or ''),
+                        "year": str(entry_year),
+                        "original_date": str(entry_date),
+                        "genre": entry.get('genre', ''),
+                        "webpage_url": entry.get('webpage_url', ''),
+                        "description": entry.get('description', ''),
                         "is_compilation": "various" in entry_artist.lower() or "compilation" in entry_album.lower(),
                         "is_soundtrack": "ost" in entry_title.lower() or "soundtrack" in entry_album.lower(),
                         "raw_tags": [t.lower() for t in entry.get('tags', [])] if entry.get('tags') else []
@@ -518,8 +559,12 @@ class MediaProcessor:
                         from collections import Counter
                         playlist_artist = Counter(artists).most_common(1)[0][0]
                 
+                playlist_id = info.get('id', '')
+                is_custom_playlist = bool(playlist_id and not playlist_id.startswith('OLAK5uy'))
+                
                 return {
                     "is_playlist": True,
+                    "is_custom_playlist": is_custom_playlist,
                     "playlist_title": clean_and_romaji(playlist_title),
                     "playlist_artist": clean_and_romaji(playlist_artist),
                     "tracks": tracks
@@ -540,6 +585,9 @@ class MediaProcessor:
                 yt_artist = info.get('artist') or info.get('uploader') or 'Unknown Artist'
                 yt_title = info.get('track') or info.get('title') or 'Unknown Title'
                 yt_album = info.get('album') or 'Unknown Album'
+                
+                release_year = info.get('release_year') or (info.get('release_date')[:4] if info.get('release_date') else '') or (info.get('upload_date')[:4] if info.get('upload_date') else '')
+                release_date = info.get('release_date') or info.get('upload_date') or ""
 
                 return {
                     "is_playlist": False,
@@ -547,7 +595,13 @@ class MediaProcessor:
                     "title": clean_and_romaji(yt_title),
                     "artist": clean_and_romaji(yt_artist),
                     "album": clean_and_romaji(yt_album),
-                    "track_number": info.get('track_number', '1') or '1',
+                    "track_number": str(info.get('track_number') or info.get('playlist_index') or '1'),
+                    "track_total": str(info.get('track_total') or info.get('n_entries') or ''),
+                    "year": str(release_year),
+                    "original_date": str(release_date),
+                    "genre": info.get('genre', ''),
+                    "webpage_url": info.get('webpage_url', ''),
+                    "description": info.get('description', ''),
                     "is_compilation": "various" in yt_artist.lower() or "compilation" in yt_album.lower(),
                     "is_soundtrack": "ost" in yt_title.lower() or "soundtrack" in yt_album.lower(),
                     "raw_tags": [t.lower() for t in info.get('tags', [])] if info.get('tags') else []
@@ -566,6 +620,8 @@ class MediaProcessor:
             acoustid_res = fetch_from_acoustid(filepath)
             if acoustid_res.get("musicbrainz_id"):
                 mb_id = acoustid_res["musicbrainz_id"]
+                if acoustid_res.get("acoustid_id"):
+                    metadata['acoustid_id'] = acoustid_res['acoustid_id']
                 mb_meta = fetch_from_musicbrainz_id(mb_id)
                 if mb_meta:
                     metadata['artist'] = mb_meta['artist']
@@ -584,9 +640,14 @@ class MediaProcessor:
                     metadata['musicbrainz_artist_id'] = mb_meta.get('musicbrainz_artist_id', '')
                     metadata['musicbrainz_albumartist_id'] = mb_meta.get('musicbrainz_albumartist_id', '')
                     metadata['musicbrainz_releasegroup_id'] = mb_meta.get('musicbrainz_releasegroup_id', '')
+                    metadata['musicbrainz_releasetrack_id'] = mb_meta.get('musicbrainz_releasetrack_id', '')
                     
                     # Guardar campos nuevos
-                    for key in ['album_artist', 'track_number', 'track_total', 'disc_number', 'disc_total', 'catalog_number', 'label', 'barcode', 'media']:
+                    for key in [
+                        'album_artist', 'track_number', 'track_total', 'disc_number', 'disc_total', 
+                        'catalog_number', 'label', 'barcode', 'media', 'release_status', 'release_type', 
+                        'release_country', 'release_script', 'artist_sort', 'albumartist_sort', 'isrc'
+                    ]:
                         if mb_meta.get(key):
                             metadata[key] = mb_meta[key]
                     
@@ -595,52 +656,93 @@ class MediaProcessor:
                     acoustid_success = True
                     logger.info(f"Identificación por huella AcoustID exitosa: {mb_meta['artist']} - {mb_meta['title']}")
 
-        # Si AcoustID falló o no coincide, hacemos fallback al embudo de texto clásica (iTunes -> Deezer -> MB texto)
+        # Si AcoustID falló o no coincide, hacemos fallback a texto
         if not acoustid_success:
             artist_q = metadata['artist']
             title_q = metadata['title']
+            album_q = metadata.get('album', '')
             
-            # 2. Intentar iTunes
-            itunes = fetch_from_itunes(artist_q, title_q)
-            if itunes.get('genre'):
-                genres_found.append(itunes['genre'])
-                metadata['artist'] = clean_and_romaji(itunes['artist'])
-                metadata['title'] = clean_and_romaji(itunes['title'])
-                metadata['album'] = clean_and_romaji(itunes['album'])
-                if itunes.get('artwork_url'):
-                    metadata['artwork_url'] = itunes['artwork_url']
-                if itunes.get('year'):
-                    metadata['year'] = itunes['year']
-                for key in ['album_artist', 'track_number', 'track_total']:
-                    if itunes.get(key):
-                        metadata[key] = itunes[key]
-            
-            # 3. Intentar Deezer
-            else:
-                deezer = fetch_from_deezer(artist_q, title_q)
-                if deezer.get('genre'):
-                    genres_found.append(deezer['genre'])
-                if deezer.get('title'):
-                    metadata['artist'] = clean_and_romaji(deezer['artist'])
-                    metadata['title'] = clean_and_romaji(deezer['title'])
-                    metadata['album'] = clean_and_romaji(deezer['album'])
-                if deezer.get('artwork_url'):
-                    metadata['artwork_url'] = deezer['artwork_url']
-                if deezer.get('year'):
-                    metadata['year'] = deezer['year']
-                for key in ['album_artist', 'track_number']:
-                    if deezer.get(key):
-                        metadata[key] = deezer[key]
-
-            # 4. Respaldo MusicBrainz (por texto)
-            if not genres_found:
-                try:
+            mb_resolved = False
+            try:
+                # Buscar por texto en MusicBrainz primero para conseguir toda la metadata rica
+                query = f'artist:"{artist_q}" AND recording:"{title_q}"'
+                if album_q and album_q != 'Unknown Album':
+                    query += f' AND release:"{album_q}"'
+                
+                res = musicbrainzngs.search_recordings(query=query, limit=1)
+                if not res['recording-list'] and album_q and album_q != 'Unknown Album':
                     res = musicbrainzngs.search_recordings(artist=artist_q, recording=title_q, limit=1)
-                    if res['recording-list']:
-                        for tag in res['recording-list'][0].get('tag-list', []):
-                            genres_found.append(tag['name'].lower())
-                except Exception:
-                    pass
+                
+                if res['recording-list']:
+                    mb_id = res['recording-list'][0]['id']
+                    mb_meta = fetch_from_musicbrainz_id(mb_id)
+                    if mb_meta:
+                        metadata['artist'] = mb_meta['artist']
+                        metadata['title'] = mb_meta['title']
+                        metadata['album'] = mb_meta['album']
+                        if mb_meta.get('year'):
+                            metadata['year'] = mb_meta['year']
+                        if mb_meta.get('original_date'):
+                            metadata['original_date'] = mb_meta['original_date']
+                        if mb_meta.get('artwork_url'):
+                            metadata['artwork_url'] = mb_meta['artwork_url']
+                        
+                        # Guardar MBIDs
+                        metadata['musicbrainz_track_id'] = mb_meta.get('musicbrainz_track_id', '')
+                        metadata['musicbrainz_album_id'] = mb_meta.get('musicbrainz_album_id', '')
+                        metadata['musicbrainz_artist_id'] = mb_meta.get('musicbrainz_artist_id', '')
+                        metadata['musicbrainz_albumartist_id'] = mb_meta.get('musicbrainz_albumartist_id', '')
+                        metadata['musicbrainz_releasegroup_id'] = mb_meta.get('musicbrainz_releasegroup_id', '')
+                        metadata['musicbrainz_releasetrack_id'] = mb_meta.get('musicbrainz_releasetrack_id', '')
+                        
+                        # Guardar campos nuevos
+                        for key in [
+                            'album_artist', 'track_number', 'track_total', 'disc_number', 'disc_total', 
+                            'catalog_number', 'label', 'barcode', 'media', 'release_status', 'release_type', 
+                            'release_country', 'release_script', 'artist_sort', 'albumartist_sort', 'isrc'
+                        ]:
+                            if mb_meta.get(key):
+                                metadata[key] = mb_meta[key]
+                        
+                        if mb_meta.get('genres'):
+                            genres_found.extend(mb_meta['genres'])
+                        mb_resolved = True
+                        logger.info(f"MusicBrainz text-search exitoso: {mb_meta['artist']} - {mb_meta['title']}")
+            except Exception as e:
+                logger.error(f"Error en fallback de texto de MusicBrainz: {e}")
+                
+            if not mb_resolved:
+                # 2. Intentar iTunes
+                itunes = fetch_from_itunes(artist_q, title_q)
+                if itunes.get('genre'):
+                    genres_found.append(itunes['genre'])
+                    metadata['artist'] = clean_and_romaji(itunes['artist'])
+                    metadata['title'] = clean_and_romaji(itunes['title'])
+                    metadata['album'] = clean_and_romaji(itunes['album'])
+                    if itunes.get('artwork_url'):
+                        metadata['artwork_url'] = itunes['artwork_url']
+                    if itunes.get('year'):
+                        metadata['year'] = itunes['year']
+                    for key in ['album_artist', 'track_number', 'track_total']:
+                        if itunes.get(key):
+                            metadata[key] = itunes[key]
+                
+                # 3. Intentar Deezer
+                else:
+                    deezer = fetch_from_deezer(artist_q, title_q)
+                    if deezer.get('genre'):
+                        genres_found.append(deezer['genre'])
+                    if deezer.get('title'):
+                        metadata['artist'] = clean_and_romaji(deezer['artist'])
+                        metadata['title'] = clean_and_romaji(deezer['title'])
+                        metadata['album'] = clean_and_romaji(deezer['album'])
+                    if deezer.get('artwork_url'):
+                        metadata['artwork_url'] = deezer['artwork_url']
+                    if deezer.get('year'):
+                        metadata['year'] = deezer['year']
+                    for key in ['album_artist', 'track_number']:
+                        if deezer.get(key):
+                            metadata[key] = deezer[key]
 
         # Guardar todos los géneros concatenados por punto y coma en metadata para inyectar al tag físico
         metadata['all_genres'] = "; ".join(sorted(list(set([g.title() for g in genres_found if g]))))
@@ -686,6 +788,9 @@ class MediaProcessor:
                 elif metadata.get('artist'):
                     audio["aART"] = metadata['artist']
                 
+                # Artistas (ARTISTS)
+                audio['----:com.apple.iTunes:ARTISTS'] = [(metadata.get('album_artist') or metadata['artist']).encode('utf-8')]
+                
                 # Número de pista y total de pistas (trkn)
                 track_val = int(metadata.get('track_number') or 1)
                 track_tot = int(metadata.get('track_total') or metadata.get('total_tracks') or 0)
@@ -699,14 +804,28 @@ class MediaProcessor:
                 if metadata.get('lyrics'):
                     audio["\xa9lyr"] = metadata['lyrics']
                 
+                # Comentario y URL de descarga
+                if metadata.get('webpage_url'):
+                    audio["\xa9cmt"] = f"Downloaded from YouTube: {metadata['webpage_url']}"
+                
                 # Fecha original / año
                 date_val = metadata.get('original_date') or metadata.get('release_date') or metadata.get('year')
                 if date_val:
                     audio["\xa9day"] = str(date_val)
                 
+                # Año original / fecha original de publicación (Picard)
+                if metadata.get('original_date'):
+                    orig_str = str(metadata['original_date'])
+                    audio['----:com.apple.iTunes:originaldate'] = [orig_str.encode('utf-8')]
+                    orig_year = orig_str.split('-')[0]
+                    audio['----:com.apple.iTunes:ORIGINALYEAR'] = [orig_year.encode('utf-8')]
+                
                 # Inyectar atoms de MusicBrainz (MBIDs) y original date
                 if metadata.get('musicbrainz_track_id'):
                     audio['----:com.apple.iTunes:MusicBrainz Track Id'] = [metadata['musicbrainz_track_id'].encode('utf-8')]
+                    audio['----:com.apple.iTunes:MusicBrainz Recording Id'] = [metadata['musicbrainz_track_id'].encode('utf-8')]
+                if metadata.get('musicbrainz_releasetrack_id'):
+                    audio['----:com.apple.iTunes:MusicBrainz Release Track Id'] = [metadata['musicbrainz_releasetrack_id'].encode('utf-8')]
                 if metadata.get('musicbrainz_album_id'):
                     audio['----:com.apple.iTunes:MusicBrainz Album Id'] = [metadata['musicbrainz_album_id'].encode('utf-8')]
                 if metadata.get('musicbrainz_artist_id'):
@@ -715,8 +834,8 @@ class MediaProcessor:
                     audio['----:com.apple.iTunes:MusicBrainz Album Artist Id'] = [metadata['musicbrainz_albumartist_id'].encode('utf-8')]
                 if metadata.get('musicbrainz_releasegroup_id'):
                     audio['----:com.apple.iTunes:MusicBrainz Release Group Id'] = [metadata['musicbrainz_releasegroup_id'].encode('utf-8')]
-                if metadata.get('original_date'):
-                    audio['----:com.apple.iTunes:originaldate'] = [metadata['original_date'].encode('utf-8')]
+                if metadata.get('acoustid_id'):
+                    audio['----:com.apple.iTunes:Acoustid Id'] = [metadata['acoustid_id'].encode('utf-8')]
                 
                 # Campos adicionales de Picard
                 if metadata.get('catalog_number'):
@@ -727,6 +846,32 @@ class MediaProcessor:
                     audio['----:com.apple.iTunes:BARCODE'] = [metadata['barcode'].encode('utf-8')]
                 if metadata.get('media'):
                     audio['----:com.apple.iTunes:MEDIA'] = [metadata['media'].encode('utf-8')]
+                
+                # Campos adicionales de Picard de estado y tipo
+                if metadata.get('release_status'):
+                    audio['----:com.apple.iTunes:MusicBrainz Album Status'] = [metadata['release_status'].encode('utf-8')]
+                    audio['----:com.apple.iTunes:RELEASESTATUS'] = [metadata['release_status'].encode('utf-8')]
+                if metadata.get('release_type'):
+                    audio['----:com.apple.iTunes:MusicBrainz Album Type'] = [metadata['release_type'].encode('utf-8')]
+                    audio['----:com.apple.iTunes:RELEASETYPE'] = [metadata['release_type'].encode('utf-8')]
+                if metadata.get('release_country'):
+                    audio['----:com.apple.iTunes:MusicBrainz Album Release Country'] = [metadata['release_country'].encode('utf-8')]
+                    audio['----:com.apple.iTunes:RELEASECOUNTRY'] = [metadata['release_country'].encode('utf-8')]
+                if metadata.get('release_script'):
+                    audio['----:com.apple.iTunes:MusicBrainz Album Script'] = [metadata['release_script'].encode('utf-8')]
+                    audio['----:com.apple.iTunes:SCRIPT'] = [metadata['release_script'].encode('utf-8')]
+                if metadata.get('isrc'):
+                    audio['----:com.apple.iTunes:ISRC'] = [metadata['isrc'].encode('utf-8')]
+                
+                # Tags de ordenación (Sort Tags)
+                audio['soar'] = [(metadata.get('artist_sort') or metadata['artist']).encode('utf-8')]
+                audio['----:com.apple.iTunes:ARTISTSORT'] = [(metadata.get('artist_sort') or metadata['artist']).encode('utf-8')]
+                audio['soaa'] = [(metadata.get('albumartist_sort') or metadata.get('album_artist') or metadata['artist']).encode('utf-8')]
+                audio['----:com.apple.iTunes:ALBUMARTISTSORT'] = [(metadata.get('albumartist_sort') or metadata.get('album_artist') or metadata['artist']).encode('utf-8')]
+                audio['soal'] = [metadata['album'].encode('utf-8')]
+                audio['----:com.apple.iTunes:ALBUMSORT'] = [metadata['album'].encode('utf-8')]
+                audio['sonm'] = [metadata['title'].encode('utf-8')]
+                audio['----:com.apple.iTunes:TITLESORT'] = [metadata['title'].encode('utf-8')]
                 
                 if artwork_bytes:
                     audio["covr"] = [MP4Cover(artwork_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
@@ -749,6 +894,9 @@ class MediaProcessor:
                 elif metadata.get('artist'):
                     audio.tags.add(TPE2(encoding=3, text=metadata['artist']))
                 
+                # Artistas (TXXX:ARTISTS)
+                audio.tags.add(TXXX(encoding=3, desc='ARTISTS', text=[metadata.get('album_artist') or metadata['artist']]))
+                
                 # Número de pista y total de pistas (TRCK)
                 track_no = str(metadata.get('track_number') or '1')
                 track_tot = metadata.get('track_total') or metadata.get('total_tracks')
@@ -764,14 +912,36 @@ class MediaProcessor:
                 if metadata.get('lyrics'):
                     audio.tags.add(USLT(encoding=3, lang='eng', desc='Lyrics', text=metadata['lyrics']))
                 
+                # Comentario y URL de descarga (COMM y WXXX)
+                if metadata.get('webpage_url'):
+                    audio.tags.add(WXXX(encoding=3, desc='download_url', url=metadata['webpage_url']))
+                    comment_text = f"Downloaded from YouTube: {metadata['webpage_url']}"
+                    audio.tags.add(COMM(encoding=3, lang='eng', desc='Comment', text=[comment_text]))
+                
                 # Fecha original / año (TDRC)
                 date_val = metadata.get('original_date') or metadata.get('release_date') or metadata.get('year')
                 if date_val:
                     audio.tags.add(TDRC(encoding=3, text=str(date_val)))
                 
-                # Inyectar frames TXXX de MusicBrainz (MBIDs) y original date (TDOR)
+                # Año original (TDOR y TORY)
+                if metadata.get('original_date'):
+                    orig_str = str(metadata['original_date'])
+                    audio.tags.add(TDOR(encoding=3, text=[orig_str]))
+                    orig_year = orig_str.split('-')[0]
+                    audio.tags.add(TXXX(encoding=3, desc='ORIGINALYEAR', text=[orig_year]))
+                    try:
+                        from mutagen.id3 import TORY
+                        audio.tags.add(TORY(encoding=3, text=[orig_year]))
+                    except:
+                        pass
+                
+                # Inyectar frames TXXX de MusicBrainz (MBIDs) y UFID
                 if metadata.get('musicbrainz_track_id'):
                     audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Track Id', text=[metadata['musicbrainz_track_id']]))
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Recording Id', text=[metadata['musicbrainz_track_id']]))
+                    audio.tags.add(UFID(owner="http://musicbrainz.org", data=metadata['musicbrainz_track_id'].encode('utf-8')))
+                if metadata.get('musicbrainz_releasetrack_id'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Release Track Id', text=[metadata['musicbrainz_releasetrack_id']]))
                 if metadata.get('musicbrainz_album_id'):
                     audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Id', text=[metadata['musicbrainz_album_id']]))
                 if metadata.get('musicbrainz_artist_id'):
@@ -780,8 +950,8 @@ class MediaProcessor:
                     audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Artist Id', text=[metadata['musicbrainz_albumartist_id']]))
                 if metadata.get('musicbrainz_releasegroup_id'):
                     audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Release Group Id', text=[metadata['musicbrainz_releasegroup_id']]))
-                if metadata.get('original_date'):
-                    audio.tags.add(TDOR(encoding=3, text=[str(metadata['original_date'])]))
+                if metadata.get('acoustid_id'):
+                    audio.tags.add(TXXX(encoding=3, desc='Acoustid Id', text=[metadata['acoustid_id']]))
                 
                 # Campos adicionales de Picard
                 if metadata.get('label'):
@@ -790,8 +960,44 @@ class MediaProcessor:
                     audio.tags.add(TMED(encoding=3, text=metadata['media']))
                 if metadata.get('catalog_number'):
                     audio.tags.add(TXXX(encoding=3, desc='Catalog Number', text=[metadata['catalog_number']]))
+                    audio.tags.add(TXXX(encoding=3, desc='CATALOGNUMBER', text=[metadata['catalog_number']]))
                 if metadata.get('barcode'):
                     audio.tags.add(TXXX(encoding=3, desc='Barcode', text=[metadata['barcode']]))
+                    audio.tags.add(TXXX(encoding=3, desc='BARCODE', text=[metadata['barcode']]))
+                
+                # Campos adicionales de Picard de estado y tipo
+                if metadata.get('release_status'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Status', text=[metadata['release_status']]))
+                    audio.tags.add(TXXX(encoding=3, desc='RELEASESTATUS', text=[metadata['release_status']]))
+                if metadata.get('release_type'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Type', text=[metadata['release_type']]))
+                    audio.tags.add(TXXX(encoding=3, desc='RELEASETYPE', text=[metadata['release_type']]))
+                if metadata.get('release_country'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Release Country', text=[metadata['release_country']]))
+                    audio.tags.add(TXXX(encoding=3, desc='RELEASECOUNTRY', text=[metadata['release_country']]))
+                if metadata.get('release_script'):
+                    audio.tags.add(TXXX(encoding=3, desc='MusicBrainz Album Script', text=[metadata['release_script']]))
+                    audio.tags.add(TXXX(encoding=3, desc='SCRIPT', text=[metadata['release_script']]))
+                if metadata.get('isrc'):
+                    audio.tags.add(TSRC(encoding=3, text=metadata['isrc']))
+                    audio.tags.add(TXXX(encoding=3, desc='ISRC', text=[metadata['isrc']]))
+                
+                # Tags de ordenación (Sort Tags)
+                art_sort = metadata.get('artist_sort') or metadata['artist']
+                audio.tags.add(TSOP(encoding=3, text=art_sort))
+                audio.tags.add(TXXX(encoding=3, desc='ARTISTSORT', text=[art_sort]))
+                
+                alb_art_sort = metadata.get('albumartist_sort') or metadata.get('album_artist') or metadata['artist']
+                audio.tags.add(TSO2(encoding=3, text=alb_art_sort))
+                audio.tags.add(TXXX(encoding=3, desc='ALBUMARTISTSORT', text=[alb_art_sort]))
+                
+                alb_sort = metadata['album']
+                audio.tags.add(TSOA(encoding=3, text=alb_sort))
+                audio.tags.add(TXXX(encoding=3, desc='ALBUMSORT', text=[alb_sort]))
+                
+                tit_sort = metadata['title']
+                audio.tags.add(TSOT(encoding=3, text=tit_sort))
+                audio.tags.add(TXXX(encoding=3, desc='TITLESORT', text=[tit_sort]))
                 
                 if artwork_bytes:
                     audio.tags.add(APIC(
@@ -1140,6 +1346,29 @@ if __name__ == "__main__":
                         except:
                             pass
                 
+                # Si es una playlist personalizada, crear archivo M3U
+                if metadata.get("is_custom_playlist"):
+                    try:
+                        playlists_dir = os.path.join(_music_dir, "Playlists")
+                        os.makedirs(playlists_dir, exist_ok=True)
+                        make_writable(playlists_dir)
+                        
+                        # Limpiar el nombre de la playlist para el archivo
+                        safe_playlist_title = (metadata.get("playlist_title") or "Unnamed Playlist").replace('/', '_').replace(':', '-')
+                        m3u_filepath = os.path.join(playlists_dir, f"{safe_playlist_title}.m3u")
+                        
+                        with open(m3u_filepath, "w", encoding="utf-8") as m3u_file:
+                            m3u_file.write("#EXTM3U\n")
+                            for fpath in final_paths:
+                                # Escribir la ruta relativa desde la carpeta Playlists a la canción
+                                rel_path = os.path.relpath(fpath, playlists_dir).replace('\\', '/')
+                                m3u_file.write(f"{rel_path}\n")
+                                
+                        make_writable(m3u_filepath)
+                        logger.info(f"Playlist M3U creada con éxito en: {m3u_filepath}")
+                    except Exception as pe:
+                        logger.error(f"Error creando playlist M3U: {pe}")
+
                 try:
                     MediaProcessor.trigger_navidrome_scan()
                 except Exception as e:
