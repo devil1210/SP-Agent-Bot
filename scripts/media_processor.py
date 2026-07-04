@@ -1023,7 +1023,7 @@ if __name__ == "__main__":
                     majority_mb_releasegroup_id = ""
                     majority_artwork_path = ""
                     
-                    majority_album_artist = None
+                    majority_album_artist = metadata.get("playlist_artist")
                     majority_catalog_number = ""
                     majority_label = ""
                     majority_barcode = ""
@@ -1058,7 +1058,7 @@ if __name__ == "__main__":
                                     majority_mb_artist_id = t.get('musicbrainz_artist_id', '')
                             
                             # Cargar campos mayoritarios adicionales
-                            if t.get('album_artist'):
+                            if t.get('album_artist') and not majority_album_artist:
                                 majority_album_artist = t['album_artist']
                             if t.get('catalog_number'):
                                 majority_catalog_number = t['catalog_number']
@@ -1083,40 +1083,43 @@ if __name__ == "__main__":
                     if not majority_album_artist and majority_artist:
                         majority_album_artist = majority_artist
                     
-                    if majority_artist:
-                        logger.info(f"Finalize: Homogeneizando tracks a Artista: '{majority_artist}', Álbum: '{majority_album}'")
-                        for t in tracks:
-                            if majority_artwork_path:
-                                t['artwork_path'] = majority_artwork_path
+                    if not majority_album_artist:
+                        majority_album_artist = "Unknown Artist"
+                    
+                    logger.info(f"Finalize: Homogeneizando tracks de album. Artista Principal: '{majority_artist or majority_album_artist}', Álbum: '{majority_album}'")
+                    for t in tracks:
+                        if majority_artwork_path:
+                            t['artwork_path'] = majority_artwork_path
+                        
+                        t['album'] = majority_album
+                        if majority_year:
+                            t['year'] = majority_year
+                        if majority_mb_album_id:
+                            t['musicbrainz_album_id'] = majority_mb_album_id
+                        if majority_mb_albumartist_id:
+                            t['musicbrainz_albumartist_id'] = majority_mb_albumartist_id
+                        if majority_mb_releasegroup_id:
+                            t['musicbrainz_releasegroup_id'] = majority_mb_releasegroup_id
+                        
+                        # Asignar siempre el album_artist de la release/playlist
+                        t['album_artist'] = majority_album_artist
+                        
+                        if majority_catalog_number:
+                            t['catalog_number'] = majority_catalog_number
+                        if majority_label:
+                            t['label'] = majority_label
+                        if majority_barcode:
+                            t['barcode'] = majority_barcode
+                        if majority_media:
+                            t['media'] = majority_media
+                        if majority_disc_total:
+                            t['disc_total'] = majority_disc_total
                             
-                            t['album'] = majority_album
-                            if majority_year:
-                                t['year'] = majority_year
-                            if majority_mb_album_id:
-                                t['musicbrainz_album_id'] = majority_mb_album_id
-                            if majority_mb_albumartist_id:
-                                t['musicbrainz_albumartist_id'] = majority_mb_albumartist_id
-                            if majority_mb_releasegroup_id:
-                                t['musicbrainz_releasegroup_id'] = majority_mb_releasegroup_id
-                            
-                            # Nuevos campos de tags homogeneizados
-                            if majority_album_artist:
-                                t['album_artist'] = majority_album_artist
-                            if majority_catalog_number:
-                                t['catalog_number'] = majority_catalog_number
-                            if majority_label:
-                                t['label'] = majority_label
-                            if majority_barcode:
-                                t['barcode'] = majority_barcode
-                            if majority_media:
-                                t['media'] = majority_media
-                            if majority_disc_total:
-                                t['disc_total'] = majority_disc_total
-                                
-                            if t.get('artist') != majority_artist:
-                                t['artist'] = majority_artist
-                                if majority_mb_artist_id:
-                                    t['musicbrainz_artist_id'] = majority_mb_artist_id
+                        # Si no hay un artista de track mayoritario claro, conservar artista individual
+                        if majority_artist and t.get('artist') != majority_artist:
+                            t['artist'] = majority_artist
+                            if majority_mb_artist_id:
+                                t['musicbrainz_artist_id'] = majority_mb_artist_id
 
                 final_paths = []
                 artwork_paths_to_clean = set()
