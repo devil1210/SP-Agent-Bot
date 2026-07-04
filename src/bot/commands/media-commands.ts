@@ -106,16 +106,53 @@ export function registerMediaCommands(bot: Bot) {
     const msg = await ctx.reply("⏳ Descargando pista, procesando Romaji y cruzando tiendas digitales...", {
       message_thread_id: ctx.message?.message_thread_id
     });
-
     try {
       const result = await runMediaProcessor(['download', url, taskId]);
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
 
+      // Caso: El álbum o pista ya existe completo en la biblioteca
+      if (result.album_exists) {
+        const itemType = result.is_playlist ? 'El álbum' : 'La pista';
+        const itemTitle = result.is_playlist ? result.playlist_title : (result.metadata?.title || result.title);
+        const itemArtist = result.is_playlist ? result.playlist_artist : (result.metadata?.artist || result.artist);
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          msg.message_id,
+          `ℹ️ <b>Ya existe en tu biblioteca:</b>\n${itemType} <b>${itemTitle}</b> de <b>${itemArtist}</b> ya se encuentra completo en tu servidor.\n\n📂 <b>Ruta:</b> <code>${result.existing_path}</code>`,
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
+
+      // Caso: Es una playlist personalizada y todas las canciones ya existen
+      if (result.playlist_exists_completely) {
+        result.is_album_mode = false;
+        pendingTasks.set(taskId, result);
+
+        const keyboard = new InlineKeyboard();
+        keyboard.text("✅ Crear playlist en Navidrome", `confirm_${taskId}`).row();
+
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          msg.message_id,
+          `ℹ️ <b>Todas las canciones ya existen:</b>\nTodas las canciones de la playlist <b>${result.playlist_title}</b> ya están en tu biblioteca.\n\n¿Deseas crear el archivo de playlist (.m3u) para Navidrome con estas canciones en su orden original?`,
+          { reply_markup: keyboard, parse_mode: 'HTML' }
+        );
+        return;
+      }
+
       if (result.is_playlist) {
         result.is_album_mode = result.is_album_mode !== false; // true por defecto
         pendingTasks.set(taskId, result);
+
+        const totalTracks = result.tracks.length;
+        const existingTracks = result.tracks.filter((t: any) => t.already_exists).length;
+        const newTracks = totalTracks - existingTracks;
+        const dupLabel = existingTracks > 0 
+          ? ` (${newTracks} nuevas, ${existingTracks} ya en biblioteca)` 
+          : '';
 
         // Build keyboard
         const keyboard = new InlineKeyboard();
@@ -133,9 +170,9 @@ export function registerMediaCommands(bot: Bot) {
         const replyText = `🎵 <b>Análisis de Álbum/Playlist Exitoso</b>\n` +
           `💿 <b>Álbum/Playlist:</b> ${result.playlist_title}\n` +
           `👤 <b>Artista/Canal:</b> ${result.playlist_artist}\n` +
-          `📦 <b>Total de Pistas:</b> ${result.tracks.length} canciones\n` +
-          `🖼️ <b>Carátulas:</b> ${result.tracks_with_artwork}/${result.tracks.length} listas\n` +
-          `📝 <b>Letras:</b> ${result.tracks_with_lyrics}/${result.tracks.length} localizadas\n` +
+          `📦 <b>Total de Pistas:</b> ${totalTracks} canciones${dupLabel}\n` +
+          `🖼️ <b>Carátulas:</b> ${result.tracks_with_artwork || 0}/${totalTracks} listas\n` +
+          `📝 <b>Letras:</b> ${result.tracks_with_lyrics || 0}/${totalTracks} localizadas\n` +
           `⚙️ <b>Modo Seleccionado:</b> <b>${result.is_album_mode ? "Álbum" : "Mix / Playlist"}</b>\n` +
           `💡 <i>${modeDesc}</i>\n\n` +
           `🧠 <b>Carpeta Destino Sugerida:</b> <code>${result.genre}</code>\n\n` +

@@ -465,131 +465,207 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
 # =========================================================================
 class MediaProcessor:
     @staticmethod
+    def find_existing_track_in_library(artist: str, title: str) -> str:
+        """Busca si la canción ya existe en la biblioteca física para evitar duplicados."""
+        if not artist or not title:
+            return ""
+        # Limpiar nombres para comparación segura
+        safe_artist = clean_and_romaji(artist).lower().replace('/', '_').replace(':', '-')
+        safe_title = clean_and_romaji(title).lower().replace('/', '_').replace(':', '-')
+        
+        # Quitar colaboraciones comunes de la comparación
+        import re
+        clean_title_cmp = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', safe_title).strip()
+        
+        # 1. Intentar buscar en directorios del artista primero
+        for root, dirs, files in os.walk(_music_dir):
+            if ".tmp" in root or "Playlists" in root:
+                continue
+            if safe_artist in root.lower():
+                for f in files:
+                    if f.lower().endswith(('.mp3', '.m4a')):
+                        f_clean = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', f.lower())
+                        if clean_title_cmp in f_clean:
+                            return os.path.join(root, f)
+                            
+        # 2. Búsqueda global en toda la biblioteca
+        for root, dirs, files in os.walk(_music_dir):
+            if ".tmp" in root or "Playlists" in root:
+                continue
+            for f in files:
+                if f.lower().endswith(('.mp3', '.m4a')):
+                    f_clean = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', f.lower())
+                    if clean_title_cmp in f_clean:
+                        if safe_artist in f_clean or safe_artist in root.lower():
+                            return os.path.join(root, f)
+        return ""
+
+    @staticmethod
     def download_audio(url: str, task_id: str) -> dict:
-        """Descarga el audio nativo M4A a máxima calidad desde YouTube, extrae tags nativos y aplica Romaji."""
+        """Analiza la biblioteca local y descarga solo las canciones faltantes de álbumes/playlists."""
         os.makedirs(TEMP_DIR, exist_ok=True)
         out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
 
-        ydl_opts = {
-            'format': 'bestaudio/best',  # Permite descargar cualquier formato de audio óptimo
-            'remote_components': ['ejs:github'],
-            'js_runtimes': {'node': {}},
-            'postprocessors': [
-                {
-                    'key': 'SponsorBlock',
-                    'when': 'pre_process',
-                    'categories': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
-                },
-                {
-                    'key': 'ModifyChapters',
-                    'remove_sponsor_segments': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
-                },
-                {
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'm4a',
-                    'preferredquality': '0',
-                }
-            ],
-            'outtmpl': out_template,
+        ydl_opts_flat = {
+            'extract_flat': True,
             'quiet': True,
-            'noprogress': True,
             'no_warnings': True,
-            'extract_flat': False,
-            'ignoreerrors': True,
-            'retries': 10,
-            'fragment_retries': 10,
-            'concurrent_fragment_downloads': 5,
-            'sleep_interval': 1,
-            'max_sleep_interval': 3
         }
         cookies_path = os.getenv("COOKIES_PATH")
         if cookies_path and os.path.exists(cookies_path):
-            ydl_opts['cookiefile'] = cookies_path
+            ydl_opts_flat['cookiefile'] = cookies_path
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-
-            # Detectar si es playlist
-            if info.get('_type') == 'playlist' or 'entries' in info:
-                tracks = []
-                playlist_title = info.get('title') or 'Unknown Album'
-                playlist_uploader = info.get('uploader') or info.get('artist') or 'Unknown Artist'
+        # 1. Analizar metadatos planos (sin descargar)
+        with yt_dlp.YoutubeDL(ydl_opts_flat) as ydl_flat:
+            flat_info = ydl_flat.extract_info(url, download=False)
+            
+            # Detectar si es playlist/álbum
+            if flat_info.get('_type') == 'playlist' or 'entries' in flat_info:
+                playlist_title = flat_info.get('title') or 'Unknown Album'
+                playlist_uploader = flat_info.get('uploader') or flat_info.get('artist') or 'Unknown Artist'
+                playlist_id = flat_info.get('id', '')
+                is_custom_playlist = bool(playlist_id and not playlist_id.startswith('OLAK5uy'))
                 
-                # Procesar cada entrada de la playlist
-                for i, entry in enumerate(info.get('entries', [])):
+                entries = flat_info.get('entries', [])
+                tracks = []
+                missing_entries = []
+                
+                # Verificar qué tracks ya existen en la biblioteca
+                for i, entry in enumerate(entries):
                     if not entry:
                         continue
-                    
-                    # Intentar preparar el nombre de archivo esperado
-                    try:
-                        filename = ydl.prepare_filename(entry)
-                        base, ext = os.path.splitext(filename)
-                        filename = base + '.m4a'
-                        if not os.path.exists(filename):
-                            pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
-                            candidates = [f for f in glob.glob(pattern) if entry.get('title') in f and not f.endswith('_cover.jpg')]
-                            if candidates:
-                                filename = candidates[0]
-                    except Exception:
-                        filename = ""
-                        pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
-                        candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
-                        if len(candidates) > i:
-                            filename = candidates[i]
-                    
-                    if not filename or not os.path.exists(filename):
-                        clean_entry_title = entry.get('title', '')
-                        pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
-                        candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
-                        best_match = None
-                        for cand in candidates:
-                            cand_base = os.path.basename(cand)
-                            if any(part.lower() in cand_base.lower() for part in clean_entry_title.split() if len(part) > 2):
-                                best_match = cand
-                                break
-                        if best_match:
-                            filename = best_match
-                        elif candidates:
-                            if i < len(candidates):
-                                filename = candidates[i]
-                            else:
-                                filename = candidates[0]
-                    
+                    entry_title = entry.get('title') or entry.get('track') or 'Unknown Title'
                     entry_artist = entry.get('artist') or entry.get('uploader') or playlist_uploader
-                    entry_title = entry.get('track') or entry.get('title') or 'Unknown Title'
-                    entry_album = entry.get('album') or playlist_title
-                    track_num = str(entry.get('playlist_index') or entry.get('track_number') or (i + 1))
                     
-                    entry_year = entry.get('release_year') or (entry.get('release_date')[:4] if entry.get('release_date') else '') or (entry.get('upload_date')[:4] if entry.get('upload_date') else '')
-                    entry_date = entry.get('release_date') or entry.get('upload_date') or ""
-                    
-                    tracks.append({
-                        "filepath": filename,
-                        "title": clean_and_romaji(entry_title),
-                        "artist": clean_and_romaji(entry_artist),
-                        "album": clean_and_romaji(entry_album),
-                        "track_number": track_num,
-                        "track_total": str(entry.get('track_total') or len(info.get('entries', [])) or ''),
-                        "year": str(entry_year),
-                        "original_date": str(entry_date),
-                        "genre": entry.get('genre', ''),
-                        "webpage_url": entry.get('webpage_url', ''),
-                        "description": entry.get('description', ''),
-                        "is_compilation": "various" in entry_artist.lower() or "compilation" in entry_album.lower(),
-                        "is_soundtrack": "ost" in entry_title.lower() or "soundtrack" in entry_album.lower(),
-                        "raw_tags": [t.lower() for t in entry.get('tags', [])] if entry.get('tags') else []
-                    })
+                    local_path = MediaProcessor.find_existing_track_in_library(entry_artist, entry_title)
+                    if local_path:
+                        tracks.append({
+                            "filepath": local_path,
+                            "title": clean_and_romaji(entry_title),
+                            "artist": clean_and_romaji(entry_artist),
+                            "album": clean_and_romaji(entry.get('album') or playlist_title),
+                            "track_number": str(entry.get('playlist_index') or entry.get('track_number') or (i + 1)),
+                            "track_total": str(len(entries)),
+                            "already_exists": True
+                        })
+                    else:
+                        missing_entries.append((i, entry))
                 
+                # Caso A: Si es un álbum oficial y ya está completo
+                if not is_custom_playlist and len(missing_entries) == 0 and len(entries) > 0:
+                    logger.info(f"Álbum '{playlist_title}' ya existe por completo en la biblioteca.")
+                    return {
+                        "is_playlist": True,
+                        "playlist_title": clean_and_romaji(playlist_title),
+                        "playlist_artist": clean_and_romaji(playlist_uploader),
+                        "album_exists": True,
+                        "existing_path": os.path.dirname(tracks[0]['filepath']),
+                        "tracks": tracks
+                    }
+                
+                # Caso B: Si es una playlist/mix y todas las canciones ya existen
+                if is_custom_playlist and len(missing_entries) == 0 and len(entries) > 0:
+                    logger.info(f"Playlist '{playlist_title}' tiene todas sus canciones en la biblioteca.")
+                    return {
+                        "is_playlist": True,
+                        "is_custom_playlist": True,
+                        "playlist_title": clean_and_romaji(playlist_title),
+                        "playlist_artist": clean_and_romaji(playlist_uploader),
+                        "playlist_exists_completely": True,
+                        "tracks": tracks
+                    }
+                
+                # Caso C: Faltan descargar algunas (o todas) las pistas
+                ydl_opts_down = {
+                    'format': 'bestaudio/best',
+                    'remote_components': ['ejs:github'],
+                    'js_runtimes': {'node': {}},
+                    'postprocessors': [
+                        {
+                            'key': 'SponsorBlock',
+                            'when': 'pre_process',
+                            'categories': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                        },
+                        {
+                            'key': 'ModifyChapters',
+                            'remove_sponsor_segments': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                        },
+                        {
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'm4a',
+                            'preferredquality': '0',
+                        }
+                    ],
+                    'outtmpl': out_template,
+                    'quiet': True,
+                    'noprogress': True,
+                    'no_warnings': True,
+                    'ignoreerrors': True,
+                    'retries': 10,
+                    'fragment_retries': 10,
+                    'concurrent_fragment_downloads': 5,
+                    'sleep_interval': 1,
+                    'max_sleep_interval': 3
+                }
+                if cookies_path and os.path.exists(cookies_path):
+                    ydl_opts_down['cookiefile'] = cookies_path
+
+                logger.info(f"Descargando {len(missing_entries)} pistas faltantes de {len(entries)} totales.")
+                
+                for idx, entry in missing_entries:
+                    video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                    try:
+                        with yt_dlp.YoutubeDL(ydl_opts_down) as ydl_down:
+                            info_down = ydl_down.extract_info(video_url, download=True)
+                            
+                            pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+                            candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+                            filename = ""
+                            if candidates:
+                                already_used = [t['filepath'] for t in tracks]
+                                avail = [c for c in candidates if c not in already_used]
+                                if avail:
+                                    filename = avail[0]
+                                    
+                            entry_artist = info_down.get('artist') or info_down.get('uploader') or playlist_uploader
+                            entry_title = info_down.get('track') or info_down.get('title') or 'Unknown Title'
+                            entry_album = info_down.get('album') or playlist_title
+                            
+                            entry_year = info_down.get('release_year') or (info_down.get('release_date')[:4] if info_down.get('release_date') else '') or (info_down.get('upload_date')[:4] if info_down.get('upload_date') else '')
+                            entry_date = info_down.get('release_date') or info_down.get('upload_date') or ""
+                            
+                            tracks.append({
+                                "filepath": filename,
+                                "title": clean_and_romaji(entry_title),
+                                "artist": clean_and_romaji(entry_artist),
+                                "album": clean_and_romaji(entry_album),
+                                "track_number": str(entry.get('playlist_index') or entry.get('track_number') or (idx + 1)),
+                                "track_total": str(len(entries)),
+                                "year": str(entry_year),
+                                "original_date": str(entry_date),
+                                "genre": info_down.get('genre', ''),
+                                "webpage_url": info_down.get('webpage_url', ''),
+                                "description": info_down.get('description', ''),
+                                "is_compilation": "various" in entry_artist.lower() or "compilation" in entry_album.lower(),
+                                "is_soundtrack": "ost" in entry_title.lower() or "soundtrack" in entry_album.lower(),
+                                "raw_tags": [t.lower() for t in info_down.get('tags', [])] if info_down.get('tags') else []
+                            })
+                    except Exception as de:
+                        logger.error(f"Error descargando pista faltante {video_url}: {de}")
+                
+                # Re-ordenar tracks para mantener la estructura original
+                try:
+                    tracks.sort(key=lambda x: int(x.get('track_number', '1') or '1'))
+                except:
+                    pass
+
                 playlist_artist = playlist_uploader
                 if (playlist_artist == 'Unknown Artist' or not playlist_artist) and tracks:
                     artists = [t['artist'] for t in tracks if t['artist'] and t['artist'] != 'Unknown Artist']
                     if artists:
                         from collections import Counter
                         playlist_artist = Counter(artists).most_common(1)[0][0]
-                
-                playlist_id = info.get('id', '')
-                is_custom_playlist = bool(playlist_id and not playlist_id.startswith('OLAK5uy'))
-                
+
                 return {
                     "is_playlist": True,
                     "is_custom_playlist": is_custom_playlist,
@@ -600,12 +676,67 @@ class MediaProcessor:
             
             else:
                 # Caso de una sola canción (comportamiento original)
+                yt_artist = flat_info.get('artist') or flat_info.get('uploader') or 'Unknown Artist'
+                yt_title = flat_info.get('track') or flat_info.get('title') or 'Unknown Title'
+                
+                # Verificar duplicados para singles
+                local_path = MediaProcessor.find_existing_track_in_library(yt_artist, yt_title)
+                if local_path:
+                    logger.info(f"Pista '{yt_title}' de '{yt_artist}' ya existe en la biblioteca.")
+                    return {
+                        "is_playlist": False,
+                        "album_exists": True,
+                        "existing_path": local_path,
+                        "metadata": {
+                            "filepath": local_path,
+                            "title": clean_and_romaji(yt_title),
+                            "artist": clean_and_romaji(yt_artist),
+                            "album": clean_and_romaji(flat_info.get('album') or 'Unknown Album')
+                        }
+                    }
+
+                # Descargar single
+                ydl_opts_down = {
+                    'format': 'bestaudio/best',
+                    'remote_components': ['ejs:github'],
+                    'js_runtimes': {'node': {}},
+                    'postprocessors': [
+                        {
+                            'key': 'SponsorBlock',
+                            'when': 'pre_process',
+                            'categories': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                        },
+                        {
+                            'key': 'ModifyChapters',
+                            'remove_sponsor_segments': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                        },
+                        {
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'm4a',
+                            'preferredquality': '0',
+                        }
+                    ],
+                    'outtmpl': out_template,
+                    'quiet': True,
+                    'noprogress': True,
+                    'no_warnings': True,
+                    'ignoreerrors': True,
+                    'retries': 10,
+                    'fragment_retries': 10,
+                    'concurrent_fragment_downloads': 5
+                }
+                if cookies_path and os.path.exists(cookies_path):
+                    ydl_opts_down['cookiefile'] = cookies_path
+
+                with yt_dlp.YoutubeDL(ydl_opts_down) as ydl_down:
+                    info = ydl_down.extract_info(url, download=True)
+                    
                 pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
                 candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
                 if candidates:
                     filename = candidates[0]
                 else:
-                    filename = ydl.prepare_filename(info)
+                    filename = ydl_down.prepare_filename(info)
                     base, ext = os.path.splitext(filename)
                     if ext != '.m4a' and os.path.exists(base + '.m4a'):
                         filename = base + '.m4a'
@@ -1380,6 +1511,9 @@ if __name__ == "__main__":
                 artwork_paths_to_clean = set()
                 
                 for t in tracks:
+                    if t.get("already_exists"):
+                        final_paths.append(t['filepath'])
+                        continue
                     t['genre'] = genre
                     MediaProcessor.write_id3_tags(t['filepath'], t)
                     fpath = MediaProcessor.move_to_library(t['filepath'], t)
@@ -1417,7 +1551,7 @@ if __name__ == "__main__":
                         logger.info(f"Playlist M3U creada con éxito en: {m3u_filepath}")
                     except Exception as pe:
                         logger.error(f"Error creando playlist M3U: {pe}")
-
+ 
                 try:
                     MediaProcessor.trigger_navidrome_scan()
                 except Exception as e:
@@ -1431,8 +1565,11 @@ if __name__ == "__main__":
                     "tracks_count": len(final_paths)
                 }))
             else:
-                MediaProcessor.write_id3_tags(filepath, metadata)
-                final_path = MediaProcessor.move_to_library(filepath, metadata)
+                if metadata.get("already_exists"):
+                    final_path = filepath
+                else:
+                    MediaProcessor.write_id3_tags(filepath, metadata)
+                    final_path = MediaProcessor.move_to_library(filepath, metadata)
                 
                 if metadata.get('artwork_path') and os.path.exists(metadata['artwork_path']):
                     try:
