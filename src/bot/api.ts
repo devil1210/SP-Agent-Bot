@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { pendingTasks, runMediaProcessor } from './commands/media-commands.js';
 
 export const apiRouter = Router();
@@ -17,7 +17,7 @@ const GENRE_MAPPING_KEYS = [
 ];
 
 // Endpoint para verificar estado general de la API
-apiRouter.get('/status', (req, res) => {
+apiRouter.get('/status', (req: Request, res: Response) => {
   res.json({
     success: true,
     message: 'SP-Agent Music API is online',
@@ -26,7 +26,7 @@ apiRouter.get('/status', (req, res) => {
 });
 
 // Endpoint para obtener las carpetas de géneros disponibles
-apiRouter.get('/genres', (req, res) => {
+apiRouter.get('/genres', (req: Request, res: Response) => {
   res.json({
     success: true,
     genres: GENRE_MAPPING_KEYS
@@ -34,7 +34,7 @@ apiRouter.get('/genres', (req, res) => {
 });
 
 // Inicia el análisis y descarga en segundo plano para evitar timeouts de HTTP
-apiRouter.post('/analyze', (req, res) => {
+apiRouter.post('/analyze', (req: Request, res: Response) => {
   const { url } = req.body;
   if (!url) {
     return res.status(400).json({ success: false, error: 'Falta la URL de YouTube' });
@@ -85,7 +85,7 @@ apiRouter.post('/analyze', (req, res) => {
 });
 
 // Consulta el estado actual de la tarea de descarga/análisis
-apiRouter.get('/task-status/:id', (req, res) => {
+apiRouter.get('/task-status/:id', (req: Request, res: Response) => {
   const taskId = req.params.id;
   const task = pendingTasks.get(taskId);
 
@@ -100,7 +100,7 @@ apiRouter.get('/task-status/:id', (req, res) => {
 });
 
 // Aplica los metadatos editados por el usuario, escribe tags ID3 y ubica los archivos
-apiRouter.post('/finalize', async (req, res) => {
+apiRouter.post('/finalize', async (req: Request, res: Response) => {
   const { taskId, metadata, genre } = req.body;
 
   if (!metadata) {

@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { bot, initializeBot } from './bot/index.js';
 import { webhookCallback } from 'grammy';
@@ -24,23 +24,23 @@ const start = async () => {
   const handleMainBot = webhookCallback(bot, 'express');
 
   // Rutear actualizaciones a bots gestionados (/bot/<token>)
-  app.post('/bot/:token', async (req, res, next) => {
+  app.post('/bot/:token', async (req: Request, res: Response, next: NextFunction) => {
     const token = req.params.token;
     const { ManagedBotService } = await import('./bot/manager.js');
     const subBot = ManagedBotService.getBotByToken(token);
     if (subBot) {
-      return webhookCallback(subBot, 'express')(req, res, next);
+      return webhookCallback(subBot, 'express')(req, res);
     }
     res.status(404).send('Not Found');
   });
 
   // Rutear actualización al bot principal (/main o /)
-  app.post(['/', '/main'], (req, res, next) => {
-    handleMainBot(req, res, next);
+  app.post(['/', '/main'], (req: Request, res: Response, next: NextFunction) => {
+    handleMainBot(req, res);
   });
 
   // Fallback para index.html (SPA routing)
-  app.get('*', (req, res) => {
+  app.get('*', (req: Request, res: Response) => {
     res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
   });
 
