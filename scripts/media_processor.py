@@ -472,7 +472,8 @@ class MediaProcessor:
             'quiet': True,
             'noprogress': True,
             'no_warnings': True,
-            'extract_flat': False
+            'extract_flat': False,
+            'ignoreerrors': True
         }
         cookies_path = os.getenv("COOKIES_PATH")
         if cookies_path and os.path.exists(cookies_path):
