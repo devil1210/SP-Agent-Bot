@@ -14,6 +14,12 @@ const start = async () => {
   const app = express();
   app.use(express.json());
 
+  // Middleware para loguear peticiones HTTP
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    console.log(`[HTTP] ${req.method} ${req.path}`);
+    next();
+  });
+
   // Servir archivos estáticos de la Mini App (carpeta /public)
   app.use(express.static(path.join(process.cwd(), 'public')));
 
