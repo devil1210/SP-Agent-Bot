@@ -1124,9 +1124,16 @@ class MediaProcessor:
                     metadata['acoustid_id'] = acoustid_res['acoustid_id']
                 mb_meta = fetch_from_musicbrainz_id(mb_id)
                 if mb_meta:
-                    metadata['artist'] = mb_meta['artist']
-                    metadata['title'] = mb_meta['title']
-                    metadata['album'] = mb_meta['album']
+                    # Validar si el artista de AcoustID coincide razonablemente con el original de YT para evitar falsos positivos
+                    yt_art_clean = normalize_string_for_matching(artist_q)
+                    mb_art_clean = normalize_string_for_matching(mb_meta.get('artist', ''))
+                    if yt_art_clean and mb_art_clean and yt_art_clean not in mb_art_clean and mb_art_clean not in yt_art_clean:
+                        logger.warning(f"Conflicto de artista en AcoustID para {os.path.basename(filepath)}: original '{artist_q}', AcoustID '{mb_meta.get('artist')}'. Ignorando AcoustID.")
+                        mb_meta = None
+                    else:
+                        metadata['artist'] = mb_meta['artist']
+                        metadata['title'] = mb_meta['title']
+                        metadata['album'] = mb_meta['album']
                     if mb_meta.get('year'):
                         metadata['year'] = mb_meta['year']
                     if mb_meta.get('original_date'):
