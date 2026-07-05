@@ -123,6 +123,18 @@ def get_decade_string(year_str: str) -> str:
     except:
         return ""
 
+def normalize_string_for_matching(s: str) -> str:
+    """Normaliza un título o nombre quitando caracteres problemáticos e insignificantes para comparación segura."""
+    import re
+    if not s:
+        return ""
+    # Reemplazar slashes de yt-dlp y caracteres no alfanuméricos
+    s = s.replace('\u29f8', '').replace('/', '').replace('\\', '').replace(':', '').replace('*', '').replace('?', '').replace('"', '').replace('<', '').replace('>', '').replace('|', '')
+    # Quitar acentos/diacríticos comunes
+    import unicodedata
+    s = "".join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    return re.sub(r'[^a-zA-Z0-9]', '', s).lower()
+
 def download_artwork(url: str, task_id: str) -> str:
     """Descarga la carátula oficial en alta resolución y la guarda temporalmente."""
     if not url:
@@ -689,10 +701,12 @@ class MediaProcessor:
                         already_used = [t['filepath'] for t in tracks]
                         avail = [c for c in candidates if c not in already_used]
                         if avail:
-                            # Intentar buscar por título
+                            # Intentar buscar por título normalizado
+                            norm_entry_title = normalize_string_for_matching(entry_title)
                             best_cand = None
                             for c in avail:
-                                if entry_title.lower() in c.lower():
+                                norm_cand = normalize_string_for_matching(os.path.basename(c))
+                                if norm_entry_title in norm_cand or norm_cand in norm_entry_title:
                                     best_cand = c
                                     break
                             filename = best_cand or avail[0]
@@ -924,6 +938,14 @@ class MediaProcessor:
                 if not res.get('recording-list'):
                     res = musicbrainzngs.search_recordings(artist=clean_artist, recording=clean_title, limit=1)
                     
+                # Fallback sin artista (sólo grabación + álbum limpio si el álbum es conocido)
+                if not res.get('recording-list') and album_q and album_q != 'Unknown Album':
+                    clean_album = clean_title_for_query(album_q)
+                    if clean_album.lower().startswith('album - '):
+                        clean_album = clean_album[8:].strip()
+                    query_no_artist = f'recording:"{clean_title}" AND release:"{clean_album}"'
+                    res = musicbrainzngs.search_recordings(query=query_no_artist, limit=1)
+                    
                 # Fallback con título/artista original
                 if not res.get('recording-list'):
                     query_orig = f'artist:"{artist_q}" AND recording:"{title_q}"'
@@ -1015,7 +1037,7 @@ class MediaProcessor:
             if any(kw in g for g in classification_tags for kw in keywords):
                 return target_folder
 
-        return "General-Music"
+        return "General"
 
     @staticmethod
     def write_id3_tags(filepath: str, metadata: dict):
@@ -1029,7 +1051,7 @@ class MediaProcessor:
             except Exception as e:
                 logger.error(f"Error leyendo carátula de {metadata['artwork_path']}: {e}")
 
-        genre_val = metadata.get('all_genres') or metadata.get('genre', 'General-Music')
+        genre_val = metadata.get('all_genres') or metadata.get('genre', 'General')
 
         try:
             if ext == "m4a":
@@ -1286,14 +1308,19 @@ class MediaProcessor:
         ext = filepath.split('.')[-1]
 
         year = metadata.get('year', '')
-        album_folder = f"[{year}] - {album}" if year else album
+        if year:
+            album_folder = f"{album_artist} - {year} - {album}"
+        else:
+            album_folder = f"{album_artist} - {album}"
 
         if metadata.get('is_soundtrack'):
             final_dir = os.path.join(_music_dir, "Soundtracks", album_folder)
         elif metadata.get('is_compilation'):
             final_dir = os.path.join(_music_dir, "Compilaciones", album_folder)
         else:
-            folder = metadata.get('genre', 'General-Music')
+            folder = metadata.get('genre', 'General')
+            if folder == "General-Music":
+                folder = "General"
             final_dir = os.path.join(_music_dir, folder, album_artist, album_folder)
 
         os.makedirs(final_dir, exist_ok=True)
@@ -1356,9 +1383,9 @@ if __name__ == "__main__":
                 if genres_suggested:
                     from collections import Counter
                     most_common = Counter(genres_suggested).most_common(1)
-                    suggested_global_genre = most_common[0][0] if most_common else "General-Music"
+                    suggested_global_genre = most_common[0][0] if most_common else "General"
                 else:
-                    suggested_global_genre = "General-Music"
+                    suggested_global_genre = "General"
                 
                 tracks_with_artwork = sum(1 for t in tracks if t.get('artwork_path'))
                 tracks_with_lyrics = sum(1 for t in tracks if t.get('lyrics'))
@@ -1468,7 +1495,7 @@ if __name__ == "__main__":
             
             if metadata.get("is_playlist"):
                 tracks = metadata.get("tracks", [])
-                genre = metadata.get("genre", "General-Music")
+                genre = metadata.get("genre", "General")
                 is_album_mode = metadata.get("is_album_mode", True)
                 
                 # Si está activado el modo Álbum, homogeneizar los tracks antes de guardar y mover
