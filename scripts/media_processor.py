@@ -896,8 +896,9 @@ class MediaProcessor:
         os.makedirs(TEMP_DIR, exist_ok=True)
         out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
 
+        is_album = "OLAK5uy" in url or force_type == "album"
         ydl_opts_flat = {
-            'extract_flat': True,
+            'extract_flat': not is_album,
             'quiet': True,
             'no_warnings': True,
         }
@@ -912,7 +913,7 @@ class MediaProcessor:
             # Detectar si es playlist/álbum
             if flat_info.get('_type') == 'playlist' or 'entries' in flat_info:
                 playlist_title = flat_info.get('title') or 'Unknown Album'
-                playlist_uploader = flat_info.get('uploader') or flat_info.get('artist') or 'Unknown Artist'
+                playlist_uploader = flat_info.get('artist') or flat_info.get('uploader') or 'Unknown Artist'
                 playlist_id = flat_info.get('id', '')
                 is_custom_playlist = bool(playlist_id and not playlist_id.startswith('OLAK5uy'))
                 if force_type == "album":
@@ -929,7 +930,7 @@ class MediaProcessor:
                     if not entry:
                         continue
                     entry_title = entry.get('title') or entry.get('track') or 'Unknown Title'
-                    entry_artist = entry.get('artist') or entry.get('uploader') or playlist_uploader
+                    entry_artist = entry.get('artist') or entry.get('creator') or entry.get('uploader') or playlist_uploader
                     
                     local_path = MediaProcessor.find_existing_track_in_library(entry_artist, entry_title)
                     if local_path:
@@ -1064,7 +1065,7 @@ class MediaProcessor:
                             filename = best_cand or avail[0]
                             
                     if filename and os.path.exists(filename):
-                        entry_artist = entry.get('artist') or entry.get('uploader') or playlist_uploader
+                        entry_artist = entry.get('artist') or entry.get('creator') or entry.get('uploader') or playlist_uploader
                         entry_album = entry.get('album') or playlist_title
                         entry_year = entry.get('release_year') or (entry.get('release_date')[:4] if entry.get('release_date') else '') or (entry.get('upload_date')[:4] if entry.get('upload_date') else '')
                         entry_date = entry.get('release_date') or entry.get('upload_date') or ""
