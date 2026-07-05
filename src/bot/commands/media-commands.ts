@@ -8,6 +8,52 @@ import { config } from '../../config.js';
 
 export const pendingTasks = new Map<string, any>();
 
+// TTL de 10 minutos para evitar fuga de memoria si el usuario no confirma (Bug #8)
+const TASK_TTL_MS = 10 * 60 * 1000;
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, task] of pendingTasks.entries()) {
+        if (task._created && now - task._created > TASK_TTL_MS) {
+            pendingTasks.delete(id);
+        }
+    }
+}, 60_000);
+
+function storeTask(taskId: string, data: Record<string, any>): void {
+    pendingTasks.set(taskId, { ...data, _created: Date.now() });
+}
+
+// Patrón de validación de URLs de YouTube / YouTube Music
+const YOUTUBE_URL_RE = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)\//i;
+
+// Cola de descargas: máximo 2 descargas pesadas en paralelo
+const MAX_CONCURRENT_DOWNLOADS = 2;
+let activeDownloads = 0;
+const downloadQueue: Array<() => void> = [];
+
+function withDownloadQueue<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const run = async () => {
+            activeDownloads++;
+            try {
+                resolve(await fn());
+            } catch (e) {
+                reject(e);
+            } finally {
+                activeDownloads--;
+                if (downloadQueue.length > 0) {
+                    downloadQueue.shift()!();
+                }
+            }
+        };
+        if (activeDownloads < MAX_CONCURRENT_DOWNLOADS) {
+            run();
+        } else {
+            downloadQueue.push(run);
+        }
+    });
+}
+
 let pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
 if (process.platform === 'win32' && existsSync(join(process.cwd(), 'venv', 'Scripts', 'python.exe'))) {
   pythonCmd = join(process.cwd(), 'venv', 'Scripts', 'python.exe');
@@ -101,23 +147,39 @@ export function registerMediaCommands(bot: Bot) {
     if (!url) {
       return await ctx.reply(`💡 <b>Uso:</b> <code>/${forceType} &lt;URL_YOUTUBE&gt;</code>`, { parse_mode: 'HTML' });
     }
+    if (!YOUTUBE_URL_RE.test(url)) {
+      return await ctx.reply(
+        `❌ <b>URL no válida.</b>\nDebe ser un enlace de YouTube o YouTube Music (youtube.com, youtu.be, music.youtube.com).`,
+        { parse_mode: 'HTML' }
+      );
+    }
 
-    const taskId = ctx.message?.message_id.toString();
+    // taskId incluye el chatId para evitar colisión entre distintos usuarios
+    const taskId = `${ctx.chat!.id}_${ctx.message?.message_id}`;
     if (!taskId) return;
 
     const msg = await ctx.reply("⏳ Descargando pista, procesando Romaji y cruzando tiendas digitales...", {
       message_thread_id: ctx.message?.message_thread_id
     });
+
+    // Encolar la descarga si hay demasiadas en paralelo
+    if (activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
+      await ctx.api.editMessageText(
+        ctx.chat!.id, msg.message_id,
+        `🕐 <b>En cola...</b> Hay ${activeDownloads} descarga(s) activa(s). Tu pedido se procesará en breve.`,
+        { parse_mode: 'HTML' }
+      );
+    }
+
     try {
-      const result = await runMediaProcessor(['download', url, taskId, forceType]);
+      const result = await withDownloadQueue(() => runMediaProcessor(['download', url, taskId, forceType || 'auto']));
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
 
       // Caso: Múltiples candidatos encontrados en MusicBrainz para un álbum
-      // Caso: Múltiples candidatos encontrados en MusicBrainz para un álbum
       if (result.candidates && result.candidates.length > 0) {
-        pendingTasks.set(taskId, { url, forceType, candidates: result.candidates, playlist_title: result.playlist_title, playlist_artist: result.playlist_artist, msg_id: msg.message_id });
+        storeTask(taskId, { url, forceType, candidates: result.candidates, playlist_title: result.playlist_title, playlist_artist: result.playlist_artist, msg_id: msg.message_id });
         
         let candidatesText = `🔍 <b>Múltiples coincidencias en MusicBrainz</b>\n` +
           `Se encontraron varios candidatos para el álbum <b>${result.playlist_title}</b> de <b>${result.playlist_artist}</b>:\n\n`;
@@ -166,7 +228,7 @@ export function registerMediaCommands(bot: Bot) {
       // Caso: Es una playlist personalizada y todas las canciones ya existen
       if (result.playlist_exists_completely) {
         result.is_album_mode = false;
-        pendingTasks.set(taskId, result);
+        storeTask(taskId, result);
 
         const keyboard = new InlineKeyboard();
         keyboard.text("✅ Crear playlist en Navidrome", `confirm_${taskId}`).row();
@@ -182,7 +244,7 @@ export function registerMediaCommands(bot: Bot) {
 
       if (result.is_playlist) {
         result.is_album_mode = forceType === 'album';
-        pendingTasks.set(taskId, result);
+        storeTask(taskId, result);
 
         const totalTracks = result.tracks.length;
         const existingTracks = result.tracks.filter((t: any) => t.already_exists).length;
@@ -190,6 +252,24 @@ export function registerMediaCommands(bot: Bot) {
         const dupLabel = existingTracks > 0 
           ? ` (${newTracks} nuevas, ${existingTracks} ya en biblioteca)` 
           : '';
+
+        // Si es playlist personalizada, mostrar prompt de AcoustID antes del selector de género (Spec §1.B)
+        if (result.is_custom_playlist) {
+          const keyboard = new InlineKeyboard();
+          keyboard.text('🎵 Sí, usar AcoustID', `acoustid_${taskId}_yes`).row();
+          keyboard.text('🚀 No, usar metadatos de YouTube', `acoustid_${taskId}_no`).row();
+
+          await ctx.api.editMessageText(
+            ctx.chat!.id,
+            msg.message_id,
+            `🔀 <b>Playlist personalizada detectada</b>\n` +
+            `📦 <b>Total de Pistas:</b> ${totalTracks} canciones${dupLabel}\n\n` +
+            `¿Deseas identificar canciones por huella de audio (<b>AcoustID/MusicID</b>)?\n` +
+            `Si los metadatos de YouTube Music son poco fiables, esto puede mejorar significativamente los tags.`,
+            { reply_markup: keyboard, parse_mode: 'HTML' }
+          );
+          return;
+        }
 
         // Build keyboard
         const keyboard = new InlineKeyboard();
@@ -221,7 +301,7 @@ export function registerMediaCommands(bot: Bot) {
         });
       } else {
         const metadata = result.metadata;
-        pendingTasks.set(taskId, metadata);
+        storeTask(taskId, metadata);
 
         // Build keyboard
         const keyboard = new InlineKeyboard();
@@ -276,7 +356,8 @@ export function registerMediaCommands(bot: Bot) {
       );
     }
 
-    const taskId = `fix_${ctx.message?.message_id}`;
+    // taskId incluye chatId para evitar colisión entre usuarios
+    const taskId = `fix_${ctx.chat!.id}_${ctx.message?.message_id}`;
     if (!taskId) return;
 
     const msg = await ctx.reply(
@@ -291,7 +372,7 @@ export function registerMediaCommands(bot: Bot) {
       }
 
       const metadata = result.metadata;
-      pendingTasks.set(taskId, metadata);
+      storeTask(taskId, metadata);
 
       // Build keyboard
       const keyboard = new InlineKeyboard();
@@ -357,7 +438,7 @@ export function registerMediaCommands(bot: Bot) {
 
       if (result.is_playlist) {
         result.is_album_mode = task.forceType === 'album';
-        pendingTasks.set(taskId, result);
+        storeTask(taskId, result);
 
         const totalTracks = result.tracks.length;
         const existingTracks = result.tracks.filter((t: any) => t.already_exists).length;
@@ -400,6 +481,68 @@ export function registerMediaCommands(bot: Bot) {
     }
   });
 
+  // =========================================================================
+  // CALLBACK: Prompt de AcoustID para playlists personalizadas (Spec §1.B)
+  // =========================================================================
+  bot.callbackQuery(/^acoustid_(.+)_(yes|no)$/, async (ctx) => {
+    const taskId = ctx.match[1];
+    const choice = ctx.match[2];
+    const task = pendingTasks.get(taskId);
+    if (!task) {
+      await ctx.answerCallbackQuery({ text: 'Esta tarea expiró o no existe.', show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+
+    if (choice === 'yes') {
+      await ctx.editMessageText('🎵 Identificando canciones por huella de audio (AcoustID)... esto puede tardar unos minutos.');
+      try {
+        const result = await runMediaProcessor(['enhance_acoustid', JSON.stringify(task)]);
+        if (!result.success) throw new Error(result.error || 'Unknown error');
+        storeTask(taskId, { ...result, is_album_mode: false });
+        await showPlaylistGenreMenu(ctx, taskId, result);
+      } catch (e: any) {
+        await ctx.editMessageText(`❌ Error en AcoustID: ${e.message}`.substring(0, 3500));
+      }
+    } else {
+      // Usar metadatos de YouTube directamente — mostrar selector de género normal
+      await showPlaylistGenreMenu(ctx, taskId, task);
+    }
+  });
+
+  /** Muestra el menú de selección de género para una playlist/álbum. */
+  async function showPlaylistGenreMenu(ctx: any, taskId: string, data: any) {
+    const totalTracks = data.tracks?.length ?? 0;
+    const existingTracks = data.tracks?.filter((t: any) => t.already_exists).length ?? 0;
+    const newTracks = totalTracks - existingTracks;
+    const dupLabel = existingTracks > 0 ? ` (${newTracks} nuevas, ${existingTracks} ya en biblioteca)` : '';
+
+    const keyboard = new InlineKeyboard();
+    const modeLabel = data.is_album_mode ? '📀 Modo: Álbum (Homogéneo)' : '🔀 Modo: Mix (Pistas Sueltas)';
+    keyboard.text(modeLabel, `togglealbum_${taskId}`).row();
+    keyboard.text(`✅ Confirmar sugerido: ${data.genre}`, `confirm_${taskId}`).row();
+    for (const genreKey of GENRE_MAPPING_KEYS) {
+      keyboard.text(`📁 ${genreKey}`, `set_${taskId}_${genreKey}`).row();
+    }
+    const modeDesc = data.is_album_mode
+      ? 'Se unificarán los temas bajo el mismo artista, año y carátula del álbum.'
+      : 'Se respetará el artista, álbum, año y carátula individual de cada pista.';
+
+    const replyText =
+      `🎵 <b>Análisis de Álbum/Playlist Exitoso</b>\n` +
+      `💿 <b>Álbum/Playlist:</b> ${data.playlist_title}\n` +
+      `👤 <b>Artista/Canal:</b> ${data.playlist_artist}\n` +
+      `📦 <b>Total de Pistas:</b> ${totalTracks} canciones${dupLabel}\n` +
+      `🖼️ <b>Carátulas:</b> ${data.tracks_with_artwork || 0}/${totalTracks} listas\n` +
+      `📝 <b>Letras:</b> ${data.tracks_with_lyrics || 0}/${totalTracks} localizadas\n` +
+      `⚙️ <b>Modo Seleccionado:</b> <b>${data.is_album_mode ? 'Álbum' : 'Mix / Playlist'}</b>\n` +
+      `💡 <i>${modeDesc}</i>\n\n` +
+      `🧠 <b>Carpeta Destino Sugerida:</b> <code>${data.genre}</code>\n\n` +
+      `Por favor selecciona una categoría para archivar todas las canciones en tu servidor:`;
+
+    await ctx.editMessageText(replyText, { reply_markup: keyboard, parse_mode: 'HTML' });
+  }
+
   bot.callbackQuery(/^togglealbum_(.+)$/, async (ctx) => {
     const taskId = ctx.match[1];
     const metadata = pendingTasks.get(taskId);
@@ -409,7 +552,7 @@ export function registerMediaCommands(bot: Bot) {
     }
 
     metadata.is_album_mode = !metadata.is_album_mode;
-    pendingTasks.set(taskId, metadata);
+    storeTask(taskId, metadata);
     await ctx.answerCallbackQuery();
 
     const keyboard = new InlineKeyboard();

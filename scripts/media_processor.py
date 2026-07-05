@@ -64,6 +64,7 @@ def make_writable(path: str):
         logger.warning(f"No se pudieron cambiar los permisos de {path}: {e}")
 
 musicbrainzngs.set_useragent(MUSICBRAINZ_APP, MUSICBRAINZ_VERSION, MUSICBRAINZ_CONTACT)
+musicbrainzngs.set_rate_limit(limit_or_interval=1.1)  # máx. 1 llamada/s a la API de MusicBrainz
 kks = pykakasi.kakasi()
 
 # =========================================================================
@@ -466,14 +467,17 @@ def download_artwork(url: str, task_id: str) -> str:
     if not url:
         return ""
     try:
-        res = requests.get(url, timeout=5)
-        if res.status_code == 200:
+        res = requests.get(url, timeout=20, allow_redirects=True)
+        content_type = res.headers.get('Content-Type', '')
+        if res.status_code == 200 and 'image' in content_type and len(res.content) > 1024:
             os.makedirs(TEMP_DIR, exist_ok=True)
             artwork_path = os.path.join(TEMP_DIR, f"{task_id}_cover.jpg")
             with open(artwork_path, "wb") as f:
                 f.write(res.content)
             make_writable(artwork_path)
             return artwork_path
+        elif res.status_code == 200 and 'image' not in content_type:
+            logger.warning(f"Carátula URL devolvió Content-Type inesperado ({content_type}): {url}")
     except Exception as e:
         logger.error(f"Error descargando carátula: {e}")
     return ""
@@ -894,11 +898,13 @@ class MediaProcessor:
     def download_audio(url: str, task_id: str, force_type: str = None, chosen_release_id: str = None) -> dict:
         """Analiza la biblioteca local y descarga solo las canciones faltantes de álbumes/playlists."""
         os.makedirs(TEMP_DIR, exist_ok=True)
-        out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
+        # Usar %(id)s en lugar de %(title)s para nombres de archivo deterministas (evita race condition)
+        out_template = os.path.join(TEMP_DIR, f"{task_id}_%(id)s.%(ext)s")
 
         is_album = "OLAK5uy" in url or force_type == "album"
         ydl_opts_flat = {
-            'extract_flat': not is_album,
+            # extract_flat=False siempre: necesitamos el campo 'artist' por track para detección correcta
+            'extract_flat': False,
             'quiet': True,
             'no_warnings': True,
         }
@@ -995,7 +1001,7 @@ class MediaProcessor:
                 # Caso C: Faltan descargar algunas (o todas) las pistas
                 if len(missing_entries) > 0:
                     ydl_opts_down = {
-                        'format': 'bestaudio/best',
+                        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
                         'remote_components': ['ejs:github'],
                         'js_runtimes': {'node': {}},
                         'postprocessors': [
@@ -1046,23 +1052,33 @@ class MediaProcessor:
                         continue
                         
                     entry_title = entry.get('title') or entry.get('track') or 'Unknown Title'
-                    pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
-                    candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+                    entry_id = entry.get('id', '')
                     
                     filename = ""
-                    if candidates:
-                        already_used = [t['filepath'] for t in tracks]
-                        avail = [c for c in candidates if c not in already_used]
-                        if avail:
-                            # Intentar buscar por título normalizado
-                            norm_entry_title = normalize_string_for_matching(entry_title)
-                            best_cand = None
-                            for c in avail:
-                                norm_cand = normalize_string_for_matching(os.path.basename(c))
-                                if norm_entry_title in norm_cand or norm_cand in norm_entry_title:
-                                    best_cand = c
-                                    break
-                            filename = best_cand or avail[0]
+                    # 1. Búsqueda exacta por ID del video (determinista, requiere out_template con %(id)s)
+                    if entry_id:
+                        for _ext in ('m4a', 'mp3', 'opus', 'webm', 'ogg'):
+                            _cand = os.path.join(TEMP_DIR, f"{task_id}_{entry_id}.{_ext}")
+                            if os.path.exists(_cand):
+                                filename = _cand
+                                break
+                    
+                    # 2. Fallback: buscar por título normalizado si el ID no funciona
+                    if not filename:
+                        pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+                        candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+                        if candidates:
+                            already_used = [t['filepath'] for t in tracks]
+                            avail = [c for c in candidates if c not in already_used]
+                            if avail:
+                                norm_entry_title = normalize_string_for_matching(entry_title)
+                                best_cand = None
+                                for c in avail:
+                                    norm_cand = normalize_string_for_matching(os.path.basename(c))
+                                    if norm_entry_title in norm_cand or norm_cand in norm_entry_title:
+                                        best_cand = c
+                                        break
+                                filename = best_cand or avail[0]
                             
                     if filename and os.path.exists(filename):
                         entry_artist = entry.get('artist') or entry.get('creator') or entry.get('uploader') or playlist_uploader
@@ -1125,7 +1141,7 @@ class MediaProcessor:
 
                 # Descargar single
                 ydl_opts_down = {
-                    'format': 'bestaudio/best',
+                    'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
                     'remote_components': ['ejs:github'],
                     'js_runtimes': {'node': {}},
                     'postprocessors': [
@@ -1195,8 +1211,13 @@ class MediaProcessor:
                 }
 
     @staticmethod
-    def fetch_genre_multi_provider(metadata: dict) -> str:
-        """Filtro jerárquico inteligente cruzando AcoustID -> iTunes -> Deezer -> MusicBrainz."""
+    def fetch_genre_multi_provider(metadata: dict, is_album_track: bool = False) -> str:
+        """Filtro jerárquico inteligente cruzando AcoustID -> iTunes -> Deezer -> MusicBrainz.
+        
+        Args:
+            is_album_track: Si True, omite AcoustID (la release de MusicBrainz es la fuente primaria
+                            para álbumes — Spec §1.A).
+        """
         filepath = metadata.get("filepath")
         genres_found = []
         acoustid_success = False
@@ -1224,7 +1245,8 @@ class MediaProcessor:
                     metadata[key] = deezer[key]
 
         # 2. Intentar identificación por Huella de Audio (AcoustID / Picard Scan)
-        if filepath and os.path.exists(filepath):
+        # Para tracks de álbumes, AcoustID no se usa — la release de MusicBrainz es la fuente primaria (Spec §1.A)
+        if filepath and os.path.exists(filepath) and not is_album_track:
             logger.info(f"Iniciando escaneo AcoustID para: {os.path.basename(filepath)}")
             acoustid_res = fetch_from_acoustid(filepath)
             if acoustid_res.get("musicbrainz_id"):
@@ -1691,16 +1713,36 @@ class MediaProcessor:
         make_writable(final_path)
         return final_path
 
-    @staticmethod
-    def trigger_navidrome_scan():
-        """Ordena reiniciar Navidrome para gatillar la indexación instantánea."""
-        os.system("docker restart navidrome")
+
+def cleanup_temp_dir():
+    """Elimina archivos en TEMP_DIR con más de 24 horas de antigüedad para evitar acumulación."""
+    import time
+    if not os.path.exists(TEMP_DIR):
+        return
+    logger.info(f"Iniciando limpieza de archivos temporales antiguos en: {TEMP_DIR}")
+    now = time.time()
+    cutoff = now - 24 * 3600  # 24 horas
+    count = 0
+    for filename in os.listdir(TEMP_DIR):
+        filepath = os.path.join(TEMP_DIR, filename)
+        if os.path.isfile(filepath):
+            try:
+                mtime = os.path.getmtime(filepath)
+                if mtime < cutoff:
+                    os.remove(filepath)
+                    count += 1
+            except Exception as e:
+                logger.warning(f"No se pudo eliminar archivo temporal {filepath}: {e}")
+    if count > 0:
+        logger.info(f"Limpieza completada. Se eliminaron {count} archivos obsoletos.")
 
 
 # =========================================================================
 # CLI INTERFACE FOR SPAWNING FROM NODE.JS
 # =========================================================================
 if __name__ == "__main__":
+    cleanup_temp_dir()
+
     if len(sys.argv) < 2:
         print(json.dumps({"success": False, "error": "No action specified"}))
         sys.exit(1)
@@ -1747,8 +1789,16 @@ if __name__ == "__main__":
                         logger.info("No se encontró release exacta. Buscando candidatos para presentar al usuario...")
                         candidates = search_album_candidates(result["playlist_title"], result["playlist_artist"])
                         if candidates:
-                            # Auto-seleccionar si hay un único candidato exacto en pistas y título similar
+                            # Auto-seleccionar solo si hay único candidato con pistas Y artista coincidentes (Spec §3)
+                            auto_select = False
                             if len(candidates) == 1 and abs(candidates[0]["tracks"] - len(tracks)) <= 1:
+                                c_art = normalize_string_for_matching(candidates[0]["artist"])
+                                p_art = normalize_string_for_matching(result["playlist_artist"])
+                                auto_select = not c_art or not p_art or c_art in p_art or p_art in c_art
+                                if not auto_select:
+                                    logger.info(f"Candidato único rechazado por artista no coincidente: MB='{candidates[0]['artist']}' vs YT='{result['playlist_artist']}'")
+                            
+                            if auto_select:
                                 try:
                                     logger.info(f"Auto-seleccionado candidato único exacto: {candidates[0]['id']}")
                                     release_info = musicbrainzngs.get_release_by_id(
@@ -1758,7 +1808,7 @@ if __name__ == "__main__":
                                 except Exception as ree:
                                     logger.error(f"Error cargando release única {candidates[0]['id']}: {ree}")
                             else:
-                                # Hay múltiples candidatos, detener la ejecución y retornar la lista para que el bot pregunte
+                                # Múltiples candidatos o artista no coincide — presentar lista al usuario
                                 print(json.dumps({
                                     "success": True,
                                     "is_playlist": True,
@@ -1791,8 +1841,10 @@ if __name__ == "__main__":
                 else:
                     # Usar los metadatos de YouTube Music directamente
                     logger.info("Usando metadatos de YouTube Music directamente sin MusicBrainz.")
+                    # Para álbumes sin release de MB, no usar AcoustID (lento y poco fiable por track)
+                    _skip_acoustid = not result.get("is_custom_playlist", False)
                     for t in tracks:
-                        sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
+                        sug_genre = MediaProcessor.fetch_genre_multi_provider(t, is_album_track=_skip_acoustid)
                         t['genre'] = sug_genre
                 
                 # Cargar letras y agregar a la lista de géneros sugeridos
@@ -1949,6 +2001,10 @@ if __name__ == "__main__":
                     albums_list = [t.get('album') for t in tracks if t.get('album') and t.get('album') != 'Unknown Album']
                     years_list = [t.get('year') for t in tracks if t.get('year')]
                     
+                    # Detectar si alguna pista del álbum es soundtrack o compilación (Spec §14)
+                    any_soundtrack = any(t.get('is_soundtrack') for t in tracks)
+                    any_compilation = any(t.get('is_compilation') for t in tracks)
+                    
                     majority_artist = None
                     majority_album = metadata.get("playlist_title") or "Unknown Album"
                     majority_year = ""
@@ -2064,6 +2120,11 @@ if __name__ == "__main__":
                             t['artist'] = majority_artist
                             if majority_mb_artist_id:
                                 t['musicbrainz_artist_id'] = majority_mb_artist_id
+                        # Propagar is_soundtrack e is_compilation a todos los tracks del álbum (Spec §14)
+                        if any_soundtrack:
+                            t['is_soundtrack'] = True
+                        if any_compilation:
+                            t['is_compilation'] = True
 
                 final_paths = []
                 artwork_paths_to_clean = set()
@@ -2079,6 +2140,18 @@ if __name__ == "__main__":
                     
                     if t.get('artwork_path'):
                         artwork_paths_to_clean.add(t['artwork_path'])
+                
+                # Guardar cover.jpg en la carpeta del álbum antes de limpiar temporales (Spec §4)
+                if is_album_mode and majority_artwork_path and os.path.exists(majority_artwork_path) and final_paths:
+                    album_dir = os.path.dirname(final_paths[0])
+                    cover_dest = os.path.join(album_dir, "cover.jpg")
+                    if not os.path.exists(cover_dest):
+                        try:
+                            shutil.copy2(majority_artwork_path, cover_dest)
+                            make_writable(cover_dest)
+                            logger.info(f"cover.jpg guardado en: {cover_dest}")
+                        except Exception as ce:
+                            logger.error(f"Error guardando cover.jpg: {ce}")
                 
                 for ap in artwork_paths_to_clean:
                     if os.path.exists(ap):
@@ -2110,10 +2183,7 @@ if __name__ == "__main__":
                     except Exception as pe:
                         logger.error(f"Error creando playlist M3U: {pe}")
  
-                try:
-                    MediaProcessor.trigger_navidrome_scan()
-                except Exception as e:
-                    logger.error(f"Failed to restart Navidrome container: {e}")
+
                 
                 album_dir = os.path.dirname(final_paths[0]) if final_paths else "M:\\music"
                 print(json.dumps({
@@ -2130,21 +2200,63 @@ if __name__ == "__main__":
                     final_path = MediaProcessor.move_to_library(filepath, metadata)
                 
                 if metadata.get('artwork_path') and os.path.exists(metadata['artwork_path']):
+                    # Guardar cover.jpg junto a la canción (Spec §4)
+                    cover_dest = os.path.join(os.path.dirname(final_path), "cover.jpg")
+                    if not os.path.exists(cover_dest):
+                        try:
+                            shutil.copy2(metadata['artwork_path'], cover_dest)
+                            make_writable(cover_dest)
+                        except Exception as ce:
+                            logger.error(f"Error guardando cover.jpg para single: {ce}")
                     try:
                         os.remove(metadata['artwork_path'])
                     except:
                         pass
                 
-                try:
-                    MediaProcessor.trigger_navidrome_scan()
-                except Exception as e:
-                    logger.error(f"Failed to restart Navidrome container: {e}")
+
                     
                 print(json.dumps({"success": True, "final_path": final_path}))
         except Exception as e:
             print(json.dumps({"success": False, "error": str(e)}))
             sys.exit(1)
             
+    elif action == "enhance_acoustid":
+        # Re-analiza con AcoustID los tracks ya descargados de una playlist personalizada (Spec §1.B)
+        if len(sys.argv) < 3:
+            print(json.dumps({"success": False, "error": "Missing metadata JSON"}))
+            sys.exit(1)
+        try:
+            metadata = json.loads(sys.argv[2])
+            tracks = metadata.get("tracks", [])
+            genres_suggested = []
+            for t in tracks:
+                fp = t.get('filepath', '')
+                if not t.get('already_exists') and fp and os.path.exists(fp):
+                    sug_genre = MediaProcessor.fetch_genre_multi_provider(t, is_album_track=False)
+                    t['genre'] = sug_genre
+                genres_suggested.append(t.get('genre', 'General'))
+            if genres_suggested:
+                from collections import Counter
+                most_common = Counter(genres_suggested).most_common(1)
+                suggested_global_genre = most_common[0][0] if most_common else "General"
+            else:
+                suggested_global_genre = "General"
+            print(json.dumps({
+                "success": True,
+                "is_playlist": True,
+                "is_custom_playlist": True,
+                "playlist_title": metadata.get("playlist_title"),
+                "playlist_artist": metadata.get("playlist_artist"),
+                "genre": suggested_global_genre,
+                "tracks_with_artwork": sum(1 for t in tracks if t.get('artwork_path')),
+                "tracks_with_lyrics": sum(1 for t in tracks if t.get('lyrics')),
+                "tracks": tracks
+            }))
+        except Exception as e:
+            print(json.dumps({"success": False, "error": str(e)}))
+            sys.exit(1)
+
     else:
         print(json.dumps({"success": False, "error": f"Unknown action: {action}"}))
         sys.exit(1)
+
