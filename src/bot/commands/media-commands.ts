@@ -95,7 +95,9 @@ export function registerMediaCommands(bot: Bot) {
   };
 
   async function handleMediaDownload(ctx: Context, forceType: 'album' | 'playlist') {
-    const url = ctx.match?.trim() || "";
+    if (!ctx.chat) return;
+    const matchStr = typeof ctx.match === 'string' ? ctx.match : (Array.isArray(ctx.match) ? ctx.match[0] : '');
+    const url = (matchStr || "").trim();
     if (!url) {
       return await ctx.reply(`💡 <b>Uso:</b> <code>/${forceType} &lt;URL_YOUTUBE&gt;</code>`, { parse_mode: 'HTML' });
     }
