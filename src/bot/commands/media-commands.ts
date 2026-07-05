@@ -211,6 +211,10 @@ export function registerMediaCommands(bot: Bot) {
           parse_mode: 'HTML'
         });
       }
+    } catch (e: any) {
+      console.error(`[MediaProcessor Error]`, e);
+      const safeErrorMsg = `❌ Error al procesar el audio: ${e.message}`.substring(0, 3500);
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, safeErrorMsg);
     }
   }
 
