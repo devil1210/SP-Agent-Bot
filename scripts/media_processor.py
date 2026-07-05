@@ -1601,34 +1601,55 @@ if __name__ == "__main__":
                 genres_suggested = []
                 artwork_cache = {}
                 
-                # Intentar resolver a nivel de álbum completo en MusicBrainz primero (sólo para álbumes oficiales)
+                # Intentar resolver a nivel de release ID usando los tracks resueltos
                 release_info = {}
-                if not result.get("is_custom_playlist"):
-                    release_info = resolve_album_release_level(result["playlist_title"], result["playlist_artist"], len(tracks))
+                release_resolved_at_idx = -1
                 
-                for idx, t in enumerate(tracks):
-                    mb_meta = {}
-                    if release_info:
+                if not result.get("is_custom_playlist"):
+                    for idx, t in enumerate(tracks):
+                        # lookup individual
+                        sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
+                        t['genre'] = sug_genre
+                        
+                        mb_album_id = t.get('musicbrainz_album_id')
+                        if mb_album_id:
+                            try:
+                                logger.info(f"¡Release ID encontrado en track {idx+1}: {mb_album_id}! Descargando metadata completa del álbum...")
+                                release_info = musicbrainzngs.get_release_by_id(
+                                    mb_album_id,
+                                    includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
+                                ).get("release", {})
+                                release_resolved_at_idx = idx
+                                break
+                            except Exception as ree:
+                                logger.error(f"Error cargando release {mb_album_id}: {ree}")
+                
+                # Si pudimos resolver el álbum completo, re-mapeamos todos los tracks
+                if release_info:
+                    logger.info("Remapeando tracks usando la release oficial del álbum...")
+                    for idx, t in enumerate(tracks):
                         try:
                             t_num = int(t.get('track_number') or (idx + 1))
                             mb_meta = map_release_track_to_metadata(release_info, t_num, len(tracks))
+                            if mb_meta:
+                                for k, v in mb_meta.items():
+                                    if v:
+                                        t[k] = v
+                                # Recalcular el género sugerido con la nueva metadata
+                                t['genre'] = MediaProcessor.classify_genre_from_metadata(t, mb_meta.get('genres', []))
                         except Exception as me:
                             logger.error(f"Error mapeando track {t.get('title')} a la release: {me}")
-                            
-                    if mb_meta:
-                        # Actualizar la metadata in-place
-                        for k, v in mb_meta.items():
-                            if v:
-                                t[k] = v
-                        # Obtener género clasificado local
-                        sug_genre = MediaProcessor.classify_genre_from_metadata(t, mb_meta.get('genres', []))
-                        t['genre'] = sug_genre
-                        genres_suggested.append(sug_genre)
-                    else:
+                else:
+                    # Fallback: si no pudimos resolver a nivel de álbum, seguimos procesando los tracks individualmente
+                    start_idx = release_resolved_at_idx + 1 if release_resolved_at_idx >= 0 else 0
+                    for idx in range(start_idx, len(tracks)):
+                        t = tracks[idx]
                         sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
                         t['genre'] = sug_genre
-                        genres_suggested.append(sug_genre)
-                    
+                
+                # Cargar letras y agregar a la lista de géneros sugeridos
+                for t in tracks:
+                    genres_suggested.append(t['genre'])
                     lyrics = fetch_lyrics_from_lrclib(t['artist'], t['title'])
                     t['lyrics'] = lyrics
                 
