@@ -1034,16 +1034,16 @@ class MediaProcessor:
         try:
             if ext == "m4a":
                 audio = MP4(filepath)
-                audio["\xa9nam"] = metadata['title']
-                audio["\xa9ART"] = metadata['artist']
-                audio["\xa9alb"] = metadata['album']
-                audio["\xa9gen"] = genre_val
+                audio["\xa9nam"] = [metadata['title']]
+                audio["\xa9ART"] = [metadata['artist']]
+                audio["\xa9alb"] = [metadata['album']]
+                audio["\xa9gen"] = [genre_val]
                 
                 # Artista del álbum (aART)
                 if metadata.get('album_artist'):
-                    audio["aART"] = metadata['album_artist']
+                    audio["aART"] = [metadata['album_artist']]
                 elif metadata.get('artist'):
-                    audio["aART"] = metadata['artist']
+                    audio["aART"] = [metadata['artist']]
                 
                 # Artistas (ARTISTS)
                 audio['----:com.apple.iTunes:ARTISTS'] = [(metadata.get('album_artist') or metadata['artist']).encode('utf-8')]
@@ -1059,16 +1059,16 @@ class MediaProcessor:
                 audio["disk"] = [(disc_val, disc_tot)]
                 
                 if metadata.get('lyrics'):
-                    audio["\xa9lyr"] = metadata['lyrics']
+                    audio["\xa9lyr"] = [metadata['lyrics']]
                 
                 # Comentario y URL de descarga
                 if metadata.get('webpage_url'):
-                    audio["\xa9cmt"] = f"Downloaded from YouTube: {metadata['webpage_url']}"
+                    audio["\xa9cmt"] = [f"Downloaded from YouTube: {metadata['webpage_url']}"]
                 
                 # Fecha de lanzamiento específica / año
                 date_val = metadata.get('year') or metadata.get('original_date') or metadata.get('release_date')
                 if date_val:
-                    audio["\xa9day"] = str(date_val)
+                    audio["\xa9day"] = [str(date_val)]
                 
                 # Año original / fecha original de publicación (Picard)
                 if metadata.get('original_date'):
