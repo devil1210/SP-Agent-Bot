@@ -1654,11 +1654,21 @@ if __name__ == "__main__":
                                 includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
                             ).get("release", {})
                             
+                            # Validar similitud de título
+                            rel_title = candidate_release.get('title', '')
+                            c1 = normalize_string_for_matching(result["playlist_title"])
+                            c2 = normalize_string_for_matching(rel_title)
+                            title_match = (c1 in c2 or c2 in c1) if (c1 and c2) else False
+                            
+                            if not title_match:
+                                logger.info(f"Ignorando release candidata {mb_album_id} por discrepancia de título: '{rel_title}' vs '{result['playlist_title']}'")
+                                continue
+                                
                             # Validar que el artista tenga coincidencia con el uploader
                             rel_artist = candidate_release.get('artist-credit', [{}])[0].get('artist', {}).get('name', '').lower()
                             clean_rel_artist = normalize_string_for_matching(rel_artist)
                             clean_handle = normalize_string_for_matching(result["playlist_artist"])
-                            
+                             
                             if count >= len(tracks) * 0.3 or clean_rel_artist in clean_handle or clean_handle in clean_rel_artist or not clean_handle or clean_handle == "unknownartist":
                                 release_info = candidate_release
                                 logger.info(f"¡Release ID ganadora confirmada: {mb_album_id} ({candidate_release.get('title')})!")
