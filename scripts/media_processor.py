@@ -1319,10 +1319,7 @@ class MediaProcessor:
         ext = filepath.split('.')[-1]
 
         year = metadata.get('year', '')
-        if year:
-            album_folder = f"{album_artist} - {year} - {album}"
-        else:
-            album_folder = f"{album_artist} - {album}"
+        album_folder = f"[{year}] - {album}" if year else album
 
         if metadata.get('is_soundtrack'):
             final_dir = os.path.join(_music_dir, "Soundtracks", album_folder)
