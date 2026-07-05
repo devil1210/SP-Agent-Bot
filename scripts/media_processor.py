@@ -308,7 +308,7 @@ def fetch_from_musicbrainz_id(recording_id: str) -> dict:
     try:
         res = musicbrainzngs.get_recording_by_id(
             recording_id, 
-            includes=["releases", "artists", "release-groups", "tags"]
+            includes=["releases", "artists", "tags"]
         )
         
         recording = res.get("recording", {})
