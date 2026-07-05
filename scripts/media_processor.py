@@ -1737,6 +1737,10 @@ if __name__ == "__main__":
                     logger.info("Remapeando tracks usando la release oficial del álbum...")
                     for idx, t in enumerate(tracks):
                         try:
+                            # Guardar la carátula original de YouTube Music como respaldo
+                            if 'artwork_url' in t and t['artwork_url']:
+                                t['yt_artwork_url'] = t['artwork_url']
+                                
                             t_num = int(t.get('track_number') or (idx + 1))
                             mb_meta = map_release_track_to_metadata(release_info, t_num, len(tracks))
                             if mb_meta:
@@ -1763,15 +1767,26 @@ if __name__ == "__main__":
                 # Descargar carátulas individuales usando caché de álbum original
                 for t in tracks:
                     art_url = t.get('artwork_url')
-                    if art_url:
-                        album_key = t.get('album', '') or 'Unknown Album'
-                        if album_key in artwork_cache:
-                            t['artwork_path'] = artwork_cache[album_key]
-                        else:
+                    yt_url = t.get('yt_artwork_url')
+                    
+                    album_key = t.get('album', '') or 'Unknown Album'
+                    if album_key in artwork_cache:
+                        t['artwork_path'] = artwork_cache[album_key]
+                    else:
+                        art_path = None
+                        # 1. Intentar con la carátula oficial de MusicBrainz
+                        if art_url:
+                            logger.info(f"Intentando descargar carátula oficial de MusicBrainz: {art_url}")
                             art_path = download_artwork(art_url, f"{task_id}_{len(artwork_cache)}")
-                            if art_path:
-                                t['artwork_path'] = art_path
-                                artwork_cache[album_key] = art_path
+                            
+                        # 2. Fallback: usar la carátula de YouTube Music original
+                        if not art_path and yt_url:
+                            logger.info(f"Carátula oficial falló o no existe. Usando carátula de respaldo de YouTube: {yt_url}")
+                            art_path = download_artwork(yt_url, f"{task_id}_{len(artwork_cache)}")
+                            
+                        if art_path:
+                            t['artwork_path'] = art_path
+                            artwork_cache[album_key] = art_path
                 
                 if genres_suggested:
                     from collections import Counter
