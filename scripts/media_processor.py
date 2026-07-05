@@ -628,82 +628,97 @@ class MediaProcessor:
                     }
                 
                 # Caso C: Faltan descargar algunas (o todas) las pistas
-                ydl_opts_down = {
-                    'format': 'bestaudio/best',
-                    'remote_components': ['ejs:github'],
-                    'js_runtimes': {'node': {}},
-                    'postprocessors': [
-                        {
-                            'key': 'SponsorBlock',
-                            'when': 'pre_process',
-                            'categories': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
-                        },
-                        {
-                            'key': 'ModifyChapters',
-                            'remove_sponsor_segments': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
-                        },
-                        {
-                            'key': 'FFmpegExtractAudio',
-                            'preferredcodec': 'm4a',
-                            'preferredquality': '0',
-                        }
-                    ],
-                    'outtmpl': out_template,
-                    'quiet': True,
-                    'noprogress': True,
-                    'no_warnings': True,
-                    'ignoreerrors': True,
-                    'retries': 10,
-                    'fragment_retries': 10,
-                    'concurrent_fragment_downloads': 5,
-                    'sleep_interval': 1,
-                    'max_sleep_interval': 3
-                }
-                if cookies_path and os.path.exists(cookies_path):
-                    ydl_opts_down['cookiefile'] = cookies_path
+                if len(missing_entries) > 0:
+                    ydl_opts_down = {
+                        'format': 'bestaudio/best',
+                        'remote_components': ['ejs:github'],
+                        'js_runtimes': {'node': {}},
+                        'postprocessors': [
+                            {
+                                'key': 'SponsorBlock',
+                                'when': 'pre_process',
+                                'categories': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                            },
+                            {
+                                'key': 'ModifyChapters',
+                                'remove_sponsor_segments': ['sponsor', 'intro', 'outro', 'selfpromo', 'preview', 'filler', 'interaction', 'music_offtopic'],
+                            },
+                            {
+                                'key': 'FFmpegExtractAudio',
+                                'preferredcodec': 'm4a',
+                                'preferredquality': '0',
+                            }
+                        ],
+                        'outtmpl': out_template,
+                        'quiet': True,
+                        'noprogress': True,
+                        'no_warnings': True,
+                        'ignoreerrors': True,
+                        'retries': 10,
+                        'fragment_retries': 10,
+                        'concurrent_fragment_downloads': 5,
+                        'sleep_interval': 1,
+                        'max_sleep_interval': 3,
+                        'playlist_items': ",".join(str(idx + 1) for idx, _ in missing_entries)
+                    }
+                    if cookies_path and os.path.exists(cookies_path):
+                        ydl_opts_down['cookiefile'] = cookies_path
 
-                logger.info(f"Descargando {len(missing_entries)} pistas faltantes de {len(entries)} totales.")
-                
-                for idx, entry in missing_entries:
-                    video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                    logger.info(f"Descargando {len(missing_entries)} pistas faltantes de {len(entries)} totales en una sola sesion.")
                     try:
                         with yt_dlp.YoutubeDL(ydl_opts_down) as ydl_down:
-                            info_down = ydl_down.extract_info(video_url, download=True)
-                            
-                            pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
-                            candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
-                            filename = ""
-                            if candidates:
-                                already_used = [t['filepath'] for t in tracks]
-                                avail = [c for c in candidates if c not in already_used]
-                                if avail:
-                                    filename = avail[0]
-                                    
-                            entry_artist = info_down.get('artist') or info_down.get('uploader') or playlist_uploader
-                            entry_title = info_down.get('track') or info_down.get('title') or 'Unknown Title'
-                            entry_album = info_down.get('album') or playlist_title
-                            
-                            entry_year = info_down.get('release_year') or (info_down.get('release_date')[:4] if info_down.get('release_date') else '') or (info_down.get('upload_date')[:4] if info_down.get('upload_date') else '')
-                            entry_date = info_down.get('release_date') or info_down.get('upload_date') or ""
-                            
-                            tracks.append({
-                                "filepath": filename,
-                                "title": clean_and_romaji(entry_title),
-                                "artist": clean_and_romaji(entry_artist),
-                                "album": clean_and_romaji(entry_album),
-                                "track_number": str(entry.get('playlist_index') or entry.get('track_number') or (idx + 1)),
-                                "track_total": str(len(entries)),
-                                "year": str(entry_year),
-                                "original_date": str(entry_date),
-                                "genre": info_down.get('genre', ''),
-                                "webpage_url": info_down.get('webpage_url', ''),
-                                "description": info_down.get('description', ''),
-                                "is_compilation": "various" in entry_artist.lower() or "compilation" in entry_album.lower(),
-                                "is_soundtrack": "ost" in entry_title.lower() or "soundtrack" in entry_album.lower(),
-                                "raw_tags": [t.lower() for t in info_down.get('tags', [])] if info_down.get('tags') else []
-                            })
+                            ydl_down.extract_info(url, download=True)
                     except Exception as de:
-                        logger.error(f"Error descargando pista faltante {video_url}: {de}")
+                        logger.error(f"Error descargando tracks filtrados de playlist: {de}")
+                
+                # Recopilar los recién descargados de TEMP_DIR y completar la lista tracks
+                for i, entry in enumerate(entries):
+                    if not entry:
+                        continue
+                    
+                    # Si ya existía, ya está en tracks
+                    if any(t.get('track_number') == str(i + 1) for t in tracks):
+                        continue
+                        
+                    entry_title = entry.get('title') or entry.get('track') or 'Unknown Title'
+                    pattern = os.path.join(TEMP_DIR, f"{task_id}_*.*")
+                    candidates = [f for f in glob.glob(pattern) if not f.endswith('_cover.jpg')]
+                    
+                    filename = ""
+                    if candidates:
+                        already_used = [t['filepath'] for t in tracks]
+                        avail = [c for c in candidates if c not in already_used]
+                        if avail:
+                            # Intentar buscar por título
+                            best_cand = None
+                            for c in avail:
+                                if entry_title.lower() in c.lower():
+                                    best_cand = c
+                                    break
+                            filename = best_cand or avail[0]
+                            
+                    if filename and os.path.exists(filename):
+                        entry_artist = entry.get('artist') or entry.get('uploader') or playlist_uploader
+                        entry_album = entry.get('album') or playlist_title
+                        entry_year = entry.get('release_year') or (entry.get('release_date')[:4] if entry.get('release_date') else '') or (entry.get('upload_date')[:4] if entry.get('upload_date') else '')
+                        entry_date = entry.get('release_date') or entry.get('upload_date') or ""
+                        
+                        tracks.append({
+                            "filepath": filename,
+                            "title": clean_and_romaji(entry_title),
+                            "artist": clean_and_romaji(entry_artist),
+                            "album": clean_and_romaji(entry_album),
+                            "track_number": str(i + 1),
+                            "track_total": str(len(entries)),
+                            "year": str(entry_year),
+                            "original_date": str(entry_date),
+                            "genre": entry.get('genre', ''),
+                            "webpage_url": f"https://www.youtube.com/watch?v={entry['id']}" if entry.get('id') else url,
+                            "description": entry.get('description', ''),
+                            "is_compilation": "various" in entry_artist.lower() or "compilation" in entry_album.lower(),
+                            "is_soundtrack": "ost" in entry_title.lower() or "soundtrack" in entry_album.lower(),
+                            "raw_tags": [t.lower() for t in entry.get('tags', [])] if entry.get('tags') else []
+                        })
                 
                 # Re-ordenar tracks para mantener la estructura original
                 try:
