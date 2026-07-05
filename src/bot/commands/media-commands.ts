@@ -115,23 +115,36 @@ export function registerMediaCommands(bot: Bot) {
       }
 
       // Caso: Múltiples candidatos encontrados en MusicBrainz para un álbum
+      // Caso: Múltiples candidatos encontrados en MusicBrainz para un álbum
       if (result.candidates && result.candidates.length > 0) {
         pendingTasks.set(taskId, { url, forceType, candidates: result.candidates, playlist_title: result.playlist_title, playlist_artist: result.playlist_artist, msg_id: msg.message_id });
         
+        let candidatesText = `🔍 <b>Múltiples coincidencias en MusicBrainz</b>\n` +
+          `Se encontraron varios candidatos para el álbum <b>${result.playlist_title}</b> de <b>${result.playlist_artist}</b>:\n\n`;
+          
         const keyboard = new InlineKeyboard();
+        const numberEmojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"];
+        
         result.candidates.forEach((c: any, index: number) => {
+          const emoji = numberEmojis[index] || `${index + 1}.`;
           const yearLabel = c.year ? ` (${c.year})` : '';
-          const tracksLabel = c.tracks ? ` [${c.tracks} tr]` : '';
+          const tracksLabel = c.tracks ? ` - ${c.tracks} pistas` : '';
           const countryLabel = c.country ? ` [${c.country}]` : '';
-          keyboard.text(`💿 ${c.title}${yearLabel}${tracksLabel}${countryLabel}`, `selrel_${taskId}_${index}`).row();
+          
+          candidatesText += `${emoji} <a href="https://musicbrainz.org/release/${c.id}">${c.title}</a>${yearLabel}${tracksLabel}${countryLabel} por ${c.artist}\n`;
+          
+          keyboard.text(`💿 Opción ${index + 1}`, `selrel_${taskId}_${index}`);
+          if ((index + 1) % 2 === 0) keyboard.row();
         });
+        
+        if (result.candidates.length % 2 !== 0) keyboard.row();
         keyboard.text("🚫 Usar metadatos originales de YouTube Music", `selrel_${taskId}_none`).row();
 
         await ctx.api.editMessageText(
           ctx.chat.id,
           msg.message_id,
-          `🔍 <b>Múltiples coincidencias en MusicBrainz</b>\nSe encontraron varios candidatos para el álbum <b>${result.playlist_title}</b> de <b>${result.playlist_artist}</b>.\n\nPor favor selecciona la versión correcta o decide ignorar la búsqueda:`,
-          { reply_markup: keyboard, parse_mode: 'HTML' }
+          candidatesText + `\nPor favor selecciona la opción correcta usando los botones, o decide ignorar la búsqueda si prefieres los datos de YT Music:`,
+          { reply_markup: keyboard, parse_mode: 'HTML', disable_web_page_preview: true }
         );
         return;
       }
