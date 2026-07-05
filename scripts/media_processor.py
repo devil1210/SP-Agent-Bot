@@ -87,14 +87,25 @@ def clean_and_romaji(text: str) -> str:
     return romaji_text if romaji_text.strip() else text
 
 def clean_title_for_query(title: str) -> str:
-    """Limpia el título de colaboraciones comunes para mejorar la coincidencia en búsquedas estructuradas."""
+    """Limpia el título de colaboraciones y sufijos comunes (Remasters, Lives, etc.) para buscar en MusicBrainz."""
     import re
     if not title:
         return title
-    # Remover (feat. ...), [feat. ...], (with ...), [with ...] de forma insensible a mayúsculas
-    t = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', title)
-    # Remover paréntesis o corchetes vacíos o sobrantes
+    
+    # 1. Quitar remasters, live, deluxe, etc.
+    # Ej: "La Voz de los '80 (Remastered 2024)", "La Funa (Live / Remastered)"
+    t = re.sub(r'(?i)\b(remastered|remaster|live|en vivo|deluxe|expanded|edition|version|special|anniversary|bonus|track)\b.*', '', title)
+    
+    # 2. Quitar feat/ft/with
+    t = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', t)
+    
+    # 3. Remover caracteres no alfanuméricos sobrantes al final o paréntesis colgantes
+    t = re.sub(r'[\(\[\{\-\_/\u29f8\s\+]+$', '', t)
+    t = re.sub(r'^\s*[\(\[\{\-\_/\u29f8\s\+]+', '', t)
+    
+    # 4. Limpiar paréntesis vacíos
     t = re.sub(r'\(\s*\)|\[\s*\]', '', t)
+    
     return t.strip()
 
 def clean_artist_for_query(artist: str) -> str:
