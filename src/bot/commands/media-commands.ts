@@ -141,7 +141,7 @@ export function registerMediaCommands(bot: Bot) {
         keyboard.text("🚫 Usar metadatos originales de YouTube Music", `selrel_${taskId}_none`).row();
 
         await ctx.api.editMessageText(
-          ctx.chat.id,
+          ctx.chat!.id,
           msg.message_id,
           candidatesText + `\nPor favor selecciona la opción correcta usando los botones, o decide ignorar la búsqueda si prefieres los datos de YT Music:`,
           { reply_markup: keyboard, parse_mode: 'HTML', disable_web_page_preview: true }
@@ -155,7 +155,7 @@ export function registerMediaCommands(bot: Bot) {
         const itemTitle = result.is_playlist ? result.playlist_title : (result.metadata?.title || result.title);
         const itemArtist = result.is_playlist ? result.playlist_artist : (result.metadata?.artist || result.artist);
         await ctx.api.editMessageText(
-          ctx.chat.id,
+          ctx.chat!.id,
           msg.message_id,
           `ℹ️ <b>Ya existe en tu biblioteca:</b>\n${itemType} <b>${itemTitle}</b> de <b>${itemArtist}</b> ya se encuentra completo en tu servidor.\n\n📂 <b>Ruta:</b> <code>${result.existing_path}</code>`,
           { parse_mode: 'HTML' }
@@ -172,7 +172,7 @@ export function registerMediaCommands(bot: Bot) {
         keyboard.text("✅ Crear playlist en Navidrome", `confirm_${taskId}`).row();
 
         await ctx.api.editMessageText(
-          ctx.chat.id,
+          ctx.chat!.id,
           msg.message_id,
           `ℹ️ <b>Todas las canciones ya existen:</b>\nTodas las canciones de la playlist <b>${result.playlist_title}</b> ya están en tu biblioteca.\n\n¿Deseas crear el archivo de playlist (.m3u) para Navidrome con estas canciones en su orden original?`,
           { reply_markup: keyboard, parse_mode: 'HTML' }
@@ -181,7 +181,7 @@ export function registerMediaCommands(bot: Bot) {
       }
 
       if (result.is_playlist) {
-        result.is_album_mode = result.is_album_mode !== false; // true por defecto
+        result.is_album_mode = forceType === 'album';
         pendingTasks.set(taskId, result);
 
         const totalTracks = result.tracks.length;
@@ -215,7 +215,7 @@ export function registerMediaCommands(bot: Bot) {
           `🧠 <b>Carpeta Destino Sugerida:</b> <code>${result.genre}</code>\n\n` +
           `Por favor selecciona una categoría para archivar todas las canciones en tu servidor:`;
 
-        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, replyText, {
+        await ctx.api.editMessageText(ctx.chat!.id, msg.message_id, replyText, {
           reply_markup: keyboard,
           parse_mode: 'HTML'
         });
@@ -323,7 +323,7 @@ export function registerMediaCommands(bot: Bot) {
       console.error(`[MediaProcessor Fix Error]`, e);
       const safeErrorMsg = `❌ Error al escanear archivo: ${e.message}`.substring(0, 3500);
       await ctx.api.editMessageText(
-        ctx.chat.id, msg.message_id,
+        ctx.chat!.id, msg.message_id,
         safeErrorMsg
       );
     }
