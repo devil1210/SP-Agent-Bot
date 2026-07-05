@@ -136,6 +136,23 @@ def get_decade_string(year_str: str) -> str:
     except:
         return ""
 
+def get_entry_thumbnail(entry: dict) -> str:
+    """Obtiene la URL de la carátula desde un entry de yt-dlp."""
+    if not entry:
+        return ""
+    # 1. Intentar con thumbnail
+    t = entry.get('thumbnail')
+    if t and isinstance(t, str):
+        return t
+    # 2. Intentar con thumbnails
+    ts = entry.get('thumbnails')
+    if ts and isinstance(ts, list):
+        try:
+            return ts[-1].get('url') or ts[0].get('url') or ""
+        except:
+            pass
+    return ""
+
 def get_release_track_count(rel: dict) -> int:
     """Obtiene el número total de pistas de una release en MusicBrainz de forma segura."""
     if not rel:
@@ -923,18 +940,40 @@ class MediaProcessor:
                             "album": clean_and_romaji(entry.get('album') or playlist_title),
                             "track_number": str(entry.get('playlist_index') or entry.get('track_number') or (i + 1)),
                             "track_total": str(len(entries)),
+                            "artwork_url": get_entry_thumbnail(entry),
                             "already_exists": True
                         })
                     else:
                         missing_entries.append((i, entry))
                 
+                # Obtener el artista mayoritario limpio de la playlist
+                playlist_artist = 'Unknown Artist'
+                if entries:
+                    # Priorizar nombres de artista distintos al uploader (para evitar nombres de canales tipo joevasconcellosoficial)
+                    artists = [e.get('artist') or e.get('uploader') for e in entries if e]
+                    clean_artists = [a for a in artists if a and a != 'Unknown Artist' and a.lower() != playlist_uploader.lower()]
+                    if clean_artists:
+                        from collections import Counter
+                        playlist_artist = Counter(clean_artists).most_common(1)[0][0]
+                
+                if playlist_artist == 'Unknown Artist' or not playlist_artist:
+                    # Si no hay alternativos, incluir el uploader
+                    artists = [e.get('artist') or e.get('uploader') or playlist_uploader for e in entries if e]
+                    artists = [a for a in artists if a and a != 'Unknown Artist']
+                    if artists:
+                        from collections import Counter
+                        playlist_artist = Counter(artists).most_common(1)[0][0]
+                
+                if playlist_artist == 'Unknown Artist' or not playlist_artist:
+                    playlist_artist = playlist_uploader
+
                 # Caso A: Si es un álbum oficial y ya está completo
                 if not is_custom_playlist and len(missing_entries) == 0 and len(entries) > 0:
                     logger.info(f"Álbum '{playlist_title}' ya existe por completo en la biblioteca.")
                     return {
                         "is_playlist": True,
                         "playlist_title": clean_and_romaji(playlist_title),
-                        "playlist_artist": clean_and_romaji(playlist_uploader),
+                        "playlist_artist": clean_and_romaji(playlist_artist),
                         "album_exists": True,
                         "existing_path": os.path.dirname(tracks[0]['filepath']),
                         "tracks": tracks
@@ -947,7 +986,7 @@ class MediaProcessor:
                         "is_playlist": True,
                         "is_custom_playlist": True,
                         "playlist_title": clean_and_romaji(playlist_title),
-                        "playlist_artist": clean_and_romaji(playlist_uploader),
+                        "playlist_artist": clean_and_romaji(playlist_artist),
                         "playlist_exists_completely": True,
                         "tracks": tracks
                     }
@@ -1042,6 +1081,7 @@ class MediaProcessor:
                             "genre": entry.get('genre', ''),
                             "webpage_url": f"https://www.youtube.com/watch?v={entry['id']}" if entry.get('id') else url,
                             "description": entry.get('description', ''),
+                            "artwork_url": get_entry_thumbnail(entry),
                             "is_compilation": "various" in entry_artist.lower() or "compilation" in entry_album.lower(),
                             "is_soundtrack": "ost" in entry_title.lower() or "soundtrack" in entry_album.lower(),
                             "raw_tags": [t.lower() for t in entry.get('tags', [])] if entry.get('tags') else []
@@ -1052,13 +1092,6 @@ class MediaProcessor:
                     tracks.sort(key=lambda x: int(x.get('track_number', '1') or '1'))
                 except:
                     pass
-
-                playlist_artist = playlist_uploader
-                if (playlist_artist == 'Unknown Artist' or not playlist_artist) and tracks:
-                    artists = [t['artist'] for t in tracks if t['artist'] and t['artist'] != 'Unknown Artist']
-                    if artists:
-                        from collections import Counter
-                        playlist_artist = Counter(artists).most_common(1)[0][0]
 
                 return {
                     "is_playlist": True,
