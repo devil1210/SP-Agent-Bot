@@ -799,7 +799,7 @@ class MediaProcessor:
         return ""
 
     @staticmethod
-    def download_audio(url: str, task_id: str) -> dict:
+    def download_audio(url: str, task_id: str, force_type: str = None) -> dict:
         """Analiza la biblioteca local y descarga solo las canciones faltantes de álbumes/playlists."""
         os.makedirs(TEMP_DIR, exist_ok=True)
         out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
@@ -823,6 +823,10 @@ class MediaProcessor:
                 playlist_uploader = flat_info.get('uploader') or flat_info.get('artist') or 'Unknown Artist'
                 playlist_id = flat_info.get('id', '')
                 is_custom_playlist = bool(playlist_id and not playlist_id.startswith('OLAK5uy'))
+                if force_type == "album":
+                    is_custom_playlist = False
+                elif force_type == "playlist":
+                    is_custom_playlist = True
                 
                 entries = flat_info.get('entries', [])
                 tracks = []
@@ -1593,8 +1597,9 @@ if __name__ == "__main__":
             sys.exit(1)
         url = sys.argv[2]
         task_id = sys.argv[3]
+        force_type = sys.argv[4] if len(sys.argv) > 4 else None
         try:
-            result = MediaProcessor.download_audio(url, task_id)
+            result = MediaProcessor.download_audio(url, task_id, force_type)
             
             if result.get("is_playlist"):
                 tracks = result["tracks"]

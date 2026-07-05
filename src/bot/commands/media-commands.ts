@@ -94,10 +94,10 @@ export function registerMediaCommands(bot: Bot) {
     }
   };
 
-  bot.command('playlist', isAdminMiddleware, async (ctx) => {
-    const url = ctx.match.trim();
+  async function handleMediaDownload(ctx: Context, forceType: 'album' | 'playlist') {
+    const url = ctx.match?.trim() || "";
     if (!url) {
-      return await ctx.reply("💡 <b>Uso:</b> <code>/playlist &lt;URL_YOUTUBE&gt;</code>", { parse_mode: 'HTML' });
+      return await ctx.reply(`💡 <b>Uso:</b> <code>/${forceType} &lt;URL_YOUTUBE&gt;</code>`, { parse_mode: 'HTML' });
     }
 
     const taskId = ctx.message?.message_id.toString();
@@ -107,7 +107,7 @@ export function registerMediaCommands(bot: Bot) {
       message_thread_id: ctx.message?.message_thread_id
     });
     try {
-      const result = await runMediaProcessor(['download', url, taskId]);
+      const result = await runMediaProcessor(['download', url, taskId, forceType]);
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
@@ -211,11 +211,15 @@ export function registerMediaCommands(bot: Bot) {
           parse_mode: 'HTML'
         });
       }
-    } catch (e: any) {
-      console.error(`[MediaProcessor Error]`, e);
-      const safeErrorMsg = `❌ Error al procesar el audio: ${e.message}`.substring(0, 3500);
-      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, safeErrorMsg);
     }
+  }
+
+  bot.command('playlist', isAdminMiddleware, async (ctx) => {
+    await handleMediaDownload(ctx, 'playlist');
+  });
+
+  bot.command('album', isAdminMiddleware, async (ctx) => {
+    await handleMediaDownload(ctx, 'album');
   });
 
   // =========================================================================
