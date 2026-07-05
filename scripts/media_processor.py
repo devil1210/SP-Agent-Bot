@@ -153,25 +153,53 @@ def resolve_album_release_level(playlist_title: str, playlist_artist: str, total
             clean_album = clean_album[8:].strip()
         clean_artist = clean_artist_for_query(playlist_artist)
         
-        # Buscar la release en MusicBrainz
-        query = f'release:"{clean_album}"'
+        res = None
+        # Intentar buscar con artista primero
         if clean_artist and clean_artist != "Unknown Artist":
-            query += f' AND artist:"{clean_artist}"'
-            
-        logger.info(f"Buscando release en MusicBrainz: {query}")
-        res = musicbrainzngs.search_releases(query=query, limit=5)
+            query_with_artist = f'release:"{clean_album}" AND artist:"{clean_artist}"'
+            logger.info(f"Buscando release en MusicBrainz con artista: {query_with_artist}")
+            try:
+                res = musicbrainzngs.search_releases(query=query_with_artist, limit=5)
+            except Exception as e:
+                logger.error(f"Error buscando release con artista: {e}")
+        
+        # Fallback sin artista
+        if not res or not res.get('release-list'):
+            query_no_artist = f'release:"{clean_album}"'
+            logger.info(f"Buscando release en MusicBrainz sin artista: {query_no_artist}")
+            try:
+                res = musicbrainzngs.search_releases(query=query_no_artist, limit=15)
+            except Exception as e:
+                logger.error(f"Error buscando release sin artista: {e}")
+                return {}
         
         best_release = None
-        # Buscar la que tenga un número de tracks similar
+        # 1. Intentar buscar un match que coincida en track count y que el artista sea substring/coincida con el handle
         for rel in res.get('release-list', []):
             try:
                 track_count = int(rel.get('track-count', 0))
                 if track_count > 0 and abs(track_count - total_tracks) <= 2:
-                    best_release = rel
-                    break
+                    rel_artist = rel.get('artist-credit', [{}])[0].get('artist', {}).get('name', '').lower()
+                    clean_rel_artist = normalize_string_for_matching(rel_artist)
+                    clean_handle = normalize_string_for_matching(clean_artist)
+                    if not clean_handle or clean_handle == "unknownartist" or clean_rel_artist in clean_handle or clean_handle in clean_rel_artist:
+                        best_release = rel
+                        break
             except:
                 pass
-        
+                
+        # 2. Si no encontramos con match de artista, tomar el primero con track count cercano
+        if not best_release:
+            for rel in res.get('release-list', []):
+                try:
+                    track_count = int(rel.get('track-count', 0))
+                    if track_count > 0 and abs(track_count - total_tracks) <= 2:
+                        best_release = rel
+                        break
+                except:
+                    pass
+                    
+        # 3. Fallback al primer resultado
         if not best_release and res.get('release-list'):
             best_release = res['release-list'][0]
             
@@ -1750,7 +1778,7 @@ if __name__ == "__main__":
                     majority_mb_releasegroup_id = ""
                     majority_artwork_path = ""
                     
-                    majority_album_artist = metadata.get("playlist_artist")
+                    majority_album_artist = ""
                     majority_catalog_number = ""
                     majority_label = ""
                     majority_barcode = ""
@@ -1758,10 +1786,19 @@ if __name__ == "__main__":
                     majority_disc_total = 1
                     
                     from collections import Counter
+                    
+                    # Contar los album_artists y artists de los tracks para ver si hay uno resuelto y válido
+                    album_artists_list = [t.get('album_artist') for t in tracks if t.get('album_artist') and t.get('album_artist') != 'Unknown Artist']
+                    if album_artists_list:
+                        aa_counter = Counter(album_artists_list).most_common(1)
+                        majority_album_artist = aa_counter[0][0]
+                    
                     if artists_list:
                         art_counter = Counter(artists_list).most_common(1)
                         if art_counter[0][1] >= len(artists_list) * 0.4:
                             majority_artist = art_counter[0][0]
+                            if not majority_album_artist:
+                                majority_album_artist = majority_artist
                     
                     if albums_list:
                         alb_counter = Counter(albums_list).most_common(1)
@@ -1811,7 +1848,7 @@ if __name__ == "__main__":
                         majority_album_artist = majority_artist
                     
                     if not majority_album_artist:
-                        majority_album_artist = "Unknown Artist"
+                        majority_album_artist = metadata.get("playlist_artist") or "Unknown Artist"
                     
                     logger.info(f"Finalize: Homogeneizando tracks de album. Artista Principal: '{majority_artist or majority_album_artist}', Álbum: '{majority_album}'")
                     for t in tracks:
