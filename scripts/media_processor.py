@@ -136,6 +136,30 @@ def get_decade_string(year_str: str) -> str:
     except:
         return ""
 
+def get_release_track_count(rel: dict) -> int:
+    """Obtiene el número total de pistas de una release en MusicBrainz de forma segura."""
+    if not rel:
+        return 0
+    # 1. Intentar con medium-track-count
+    if 'medium-track-count' in rel and rel['medium-track-count'] is not None:
+        try:
+            return int(rel['medium-track-count'])
+        except:
+            pass
+    # 2. Intentar sumando los tracks de los medios
+    if 'medium-list' in rel:
+        try:
+            return sum(int(m.get('track-count', 0)) for m in rel.get('medium-list', []))
+        except:
+            pass
+    # 3. Intentar con track-count
+    if 'track-count' in rel and rel['track-count'] is not None:
+        try:
+            return int(rel['track-count'])
+        except:
+            pass
+    return 0
+
 def normalize_string_for_matching(s: str) -> str:
     """Normaliza un título o nombre quitando caracteres problemáticos e insignificantes para comparación segura."""
     import re
@@ -190,7 +214,7 @@ def search_album_candidates(playlist_title: str, playlist_artist: str) -> list:
                             "title": rel_title,
                             "artist": rel_artist,
                             "year": rel.get("date", "")[:4] if rel.get("date") else "",
-                            "tracks": int(rel.get("track-count", 0)),
+                            "tracks": get_release_track_count(rel),
                             "country": rel.get("country", "")
                         })
                         if len(candidates) >= 5:
@@ -236,48 +260,27 @@ def resolve_album_release_level(playlist_title: str, playlist_artist: str, total
             return c1 in c2 or c2 in c1
 
         best_release = None
-        # 1. Intentar buscar un match que coincida en track count, artista y título similar
+        # Buscar un match que coincida en track count, artista y título similar (Criterio Estricto)
         for rel in res.get('release-list', []):
             try:
                 rel_title = rel.get('title', '')
                 if not titles_are_similar(clean_album, rel_title):
                     continue
-                track_count = int(rel.get('track-count', 0))
+                track_count = get_release_track_count(rel)
                 if track_count > 0 and abs(track_count - total_tracks) <= 2:
                     rel_artist = rel.get('artist-credit', [{}])[0].get('artist', {}).get('name', '').lower()
                     clean_rel_artist = normalize_string_for_matching(rel_artist)
                     clean_handle = normalize_string_for_matching(clean_artist)
+                    # El artista DEBE coincidir
                     if not clean_handle or clean_handle == "unknownartist" or clean_rel_artist in clean_handle or clean_handle in clean_rel_artist:
                         best_release = rel
                         break
             except:
                 pass
-                
-        # 2. Si no encontramos con match de artista, tomar el primero con título similar y track count cercano
-        if not best_release:
-            for rel in res.get('release-list', []):
-                try:
-                    rel_title = rel.get('title', '')
-                    if not titles_are_similar(clean_album, rel_title):
-                        continue
-                    track_count = int(rel.get('track-count', 0))
-                    if track_count > 0 and abs(track_count - total_tracks) <= 2:
-                        best_release = rel
-                        break
-                except:
-                    pass
-                    
-        # 3. Fallback al primer resultado que tenga título similar
-        if not best_release:
-            for rel in res.get('release-list', []):
-                rel_title = rel.get('title', '')
-                if titles_are_similar(clean_album, rel_title):
-                    best_release = rel
-                    break
             
         if best_release:
             rel_id = best_release['id']
-            logger.info(f"Release encontrada: {best_release.get('title')} ({rel_id})")
+            logger.info(f"Release oficial confirmada: {best_release.get('title')} ({rel_id})")
             
             rel_detail = musicbrainzngs.get_release_by_id(
                 rel_id,
