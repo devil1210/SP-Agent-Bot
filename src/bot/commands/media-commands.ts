@@ -114,6 +114,28 @@ export function registerMediaCommands(bot: Bot) {
         throw new Error(result.error || 'Unknown error');
       }
 
+      // Caso: Múltiples candidatos encontrados en MusicBrainz para un álbum
+      if (result.candidates && result.candidates.length > 0) {
+        pendingTasks.set(taskId, { url, forceType, candidates: result.candidates, playlist_title: result.playlist_title, playlist_artist: result.playlist_artist, msg_id: msg.message_id });
+        
+        const keyboard = new InlineKeyboard();
+        result.candidates.forEach((c: any, index: number) => {
+          const yearLabel = c.year ? ` (${c.year})` : '';
+          const tracksLabel = c.tracks ? ` [${c.tracks} tr]` : '';
+          const countryLabel = c.country ? ` [${c.country}]` : '';
+          keyboard.text(`💿 ${c.title}${yearLabel}${tracksLabel}${countryLabel}`, `selrel_${taskId}_${index}`).row();
+        });
+        keyboard.text("🚫 Usar metadatos originales de YouTube Music", `selrel_${taskId}_none`).row();
+
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          msg.message_id,
+          `🔍 <b>Múltiples coincidencias en MusicBrainz</b>\nSe encontraron varios candidatos para el álbum <b>${result.playlist_title}</b> de <b>${result.playlist_artist}</b>.\n\nPor favor selecciona la versión correcta o decide ignorar la búsqueda:`,
+          { reply_markup: keyboard, parse_mode: 'HTML' }
+        );
+        return;
+      }
+
       // Caso: El álbum o pista ya existe completo en la biblioteca
       if (result.album_exists) {
         const itemType = result.is_playlist ? 'El álbum' : 'La pista';
@@ -291,6 +313,77 @@ export function registerMediaCommands(bot: Bot) {
         ctx.chat.id, msg.message_id,
         safeErrorMsg
       );
+    }
+  });
+
+  bot.callbackQuery(/^selrel_(.+)_(.+)$/, async (ctx) => {
+    const taskId = ctx.match[1];
+    const option = ctx.match[2]; // index or 'none'
+
+    const task = pendingTasks.get(taskId);
+    if (!task) {
+      await ctx.answerCallbackQuery({ text: "Esta tarea expiró o no existe.", show_alert: true });
+      return;
+    }
+
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText("⏳ Aplicando selección y procesando metadatos finales...");
+
+    let chosenReleaseId = 'none';
+    if (option !== 'none') {
+      const idx = parseInt(option);
+      chosenReleaseId = task.candidates[idx].id;
+    }
+
+    try {
+      // Correr el media processor con el release ID elegido
+      const result = await runMediaProcessor(['download', task.url, taskId, task.forceType, chosenReleaseId]);
+      if (!result.success) {
+        throw new Error(result.error || 'Unknown error');
+      }
+
+      if (result.is_playlist) {
+        result.is_album_mode = task.forceType === 'album';
+        pendingTasks.set(taskId, result);
+
+        const totalTracks = result.tracks.length;
+        const existingTracks = result.tracks.filter((t: any) => t.already_exists).length;
+        const newTracks = totalTracks - existingTracks;
+        const dupLabel = existingTracks > 0 
+          ? ` (${newTracks} nuevas, ${existingTracks} ya en biblioteca)` 
+          : '';
+
+        const keyboard = new InlineKeyboard();
+        const modeLabel = result.is_album_mode ? "📀 Modo: Álbum (Homogéneo)" : "🔀 Modo: Mix (Pistas Sueltas)";
+        keyboard.text(modeLabel, `togglealbum_${taskId}`).row();
+        keyboard.text(`✅ Confirmar sugerido: ${result.genre}`, `confirm_${taskId}`).row();
+        for (const genreKey of GENRE_MAPPING_KEYS) {
+          keyboard.text(`📁 ${genreKey}`, `set_${taskId}_${genreKey}`).row();
+        }
+
+        const modeDesc = result.is_album_mode 
+          ? "Se unificarán los temas bajo el mismo artista, año y carátula del álbum." 
+          : "Se respetará el artista, álbum, año y carátula individual de cada pista.";
+
+        const replyText = `🎵 <b>Análisis de Álbum/Playlist Exitoso</b>\n` +
+          `💿 <b>Álbum/Playlist:</b> ${result.playlist_title}\n` +
+          `👤 <b>Artista/Canal:</b> ${result.playlist_artist}\n` +
+          `📦 <b>Total de Pistas:</b> ${totalTracks} canciones${dupLabel}\n` +
+          `🖼️ <b>Carátulas:</b> ${result.tracks_with_artwork || 0}/${totalTracks} listas\n` +
+          `📝 <b>Letras:</b> ${result.tracks_with_lyrics || 0}/${totalTracks} localizadas\n` +
+          `⚙️ <b>Modo Seleccionado:</b> <b>${result.is_album_mode ? "Álbum" : "Mix / Playlist"}</b>\n` +
+          `💡 <i>${modeDesc}</i>\n\n` +
+          `🧠 <b>Carpeta Destino Sugerida:</b> <code>${result.genre}</code>\n\n` +
+          `Por favor selecciona una categoría para archivar todas las canciones en tu servidor:`;
+
+        await ctx.editMessageText(replyText, {
+          reply_markup: keyboard,
+          parse_mode: 'HTML'
+        });
+      }
+    } catch (e: any) {
+      console.error(`[MediaProcessor Selection Error]`, e);
+      await ctx.editMessageText(`❌ Error al procesar selección: ${e.message}`);
     }
   });
 

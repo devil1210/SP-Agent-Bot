@@ -113,6 +113,8 @@ def clean_artist_for_query(artist: str) -> str:
     import re
     if not artist:
         return artist
+    # Quitar sufijos de YouTube Topic/Tema
+    artist = re.sub(r'(?i)\s*-\s*(tema|topic|oficial|official|vevo|music|channel|tv)$', '', artist)
     parts = re.split(r',|;| featuring | feat\.? | and | y | & |\bft\b', artist, flags=re.IGNORECASE)
     return parts[0].strip()
 
@@ -143,6 +145,59 @@ def normalize_string_for_matching(s: str) -> str:
     s = s.replace('\u29f8', '').replace('/', '').replace('\\', '').replace(':', '').replace('*', '').replace('?', '').replace('"', '').replace('<', '').replace('>', '').replace('|', '')
     # Quitar acentos/diacríticos comunes
     return re.sub(r'[^a-zA-Z0-9]', '', s).lower()
+
+def search_album_candidates(playlist_title: str, playlist_artist: str) -> list:
+    """Busca candidatos de release en MusicBrainz para un álbum y devuelve una lista limpia."""
+    import musicbrainzngs
+    candidates = []
+    try:
+        clean_album = clean_title_for_query(playlist_title)
+        if clean_album.lower().startswith('album - '):
+            clean_album = clean_album[8:].strip()
+        clean_artist = clean_artist_for_query(playlist_artist)
+        
+        res = None
+        if clean_artist and clean_artist != "Unknown Artist":
+            query_with_artist = f'release:"{clean_album}" AND artist:"{clean_artist}"'
+            try:
+                res = musicbrainzngs.search_releases(query=query_with_artist, limit=8)
+            except Exception as e:
+                logger.error(f"Error buscando candidatos con artista: {e}")
+        
+        if not res or not res.get('release-list'):
+            query_no_artist = f'release:"{clean_album}"'
+            try:
+                res = musicbrainzngs.search_releases(query=query_no_artist, limit=12)
+            except Exception as e:
+                logger.error(f"Error buscando candidatos sin artista: {e}")
+                
+        if res and res.get('release-list'):
+            def titles_are_similar(t1: str, t2: str) -> bool:
+                c1 = normalize_string_for_matching(t1)
+                c2 = normalize_string_for_matching(t2)
+                if not c1 or not c2:
+                    return False
+                return c1 in c2 or c2 in c1
+                
+            for rel in res.get('release-list', []):
+                rel_title = rel.get('title', '')
+                if titles_are_similar(clean_album, rel_title):
+                    rel_artist = rel.get('artist-credit', [{}])[0].get('artist', {}).get('name', 'Unknown')
+                    # Prevenir duplicados en la lista de candidatos
+                    if not any(c['id'] == rel['id'] for c in candidates):
+                        candidates.append({
+                            "id": rel["id"],
+                            "title": rel_title,
+                            "artist": rel_artist,
+                            "year": rel.get("date", "")[:4] if rel.get("date") else "",
+                            "tracks": int(rel.get("track-count", 0)),
+                            "country": rel.get("country", "")
+                        })
+                        if len(candidates) >= 5:
+                            break
+    except Exception as e:
+        logger.error(f"Error obteniendo candidatos: {e}")
+    return candidates
 
 def resolve_album_release_level(playlist_title: str, playlist_artist: str, total_tracks: int) -> dict:
     """Intenta buscar la release completa en MusicBrainz y devolver sus tracks mapeados."""
@@ -816,7 +871,7 @@ class MediaProcessor:
         return ""
 
     @staticmethod
-    def download_audio(url: str, task_id: str, force_type: str = None) -> dict:
+    def download_audio(url: str, task_id: str, force_type: str = None, chosen_release_id: str = None) -> dict:
         """Analiza la biblioteca local y descarga solo las canciones faltantes de álbumes/playlists."""
         os.makedirs(TEMP_DIR, exist_ok=True)
         out_template = os.path.join(TEMP_DIR, f"{task_id}_%(title)s.%(ext)s")
@@ -1622,66 +1677,62 @@ if __name__ == "__main__":
         url = sys.argv[2]
         task_id = sys.argv[3]
         force_type = sys.argv[4] if len(sys.argv) > 4 else None
+        chosen_release_id = sys.argv[5] if len(sys.argv) > 5 else None
         try:
-            result = MediaProcessor.download_audio(url, task_id, force_type)
+            result = MediaProcessor.download_audio(url, task_id, force_type, chosen_release_id)
             
             if result.get("is_playlist"):
                 tracks = result["tracks"]
                 genres_suggested = []
                 artwork_cache = {}
                 
-                # 1. Hacemos lookup individual de todos los tracks primero para acumular sus MBIDs
-                album_ids_found = []
-                for idx, t in enumerate(tracks):
-                    sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
-                    t['genre'] = sug_genre
-                    
-                    mb_album_id = t.get('musicbrainz_album_id')
-                    if mb_album_id:
-                        album_ids_found.append(mb_album_id)
-                
-                # 2. Votación de la release mayoritaria
                 release_info = {}
-                if album_ids_found and not result.get("is_custom_playlist"):
-                    from collections import Counter
-                    mb_album_counter = Counter(album_ids_found).most_common()
-                    
-                    for mb_album_id, count in mb_album_counter:
+                
+                # 1. Si el usuario ya eligió una versión
+                if chosen_release_id:
+                    if chosen_release_id != "none":
                         try:
-                            logger.info(f"Probando release ID candidata: {mb_album_id} (votos: {count})")
-                            candidate_release = musicbrainzngs.get_release_by_id(
-                                mb_album_id,
+                            logger.info(f"Cargando release seleccionada por el usuario: {chosen_release_id}")
+                            release_info = musicbrainzngs.get_release_by_id(
+                                chosen_release_id,
                                 includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
                             ).get("release", {})
-                            
-                            # Validar similitud de título
-                            rel_title = candidate_release.get('title', '')
-                            c1 = normalize_string_for_matching(result["playlist_title"])
-                            c2 = normalize_string_for_matching(rel_title)
-                            title_match = (c1 in c2 or c2 in c1) if (c1 and c2) else False
-                            
-                            if not title_match:
-                                logger.info(f"Ignorando release candidata {mb_album_id} por discrepancia de título: '{rel_title}' vs '{result['playlist_title']}'")
-                                continue
-                                
-                            # Validar que el artista tenga coincidencia con el uploader
-                            rel_artist = candidate_release.get('artist-credit', [{}])[0].get('artist', {}).get('name', '').lower()
-                            clean_rel_artist = normalize_string_for_matching(rel_artist)
-                            clean_handle = normalize_string_for_matching(result["playlist_artist"])
-                             
-                            if count >= len(tracks) * 0.3 or clean_rel_artist in clean_handle or clean_handle in clean_rel_artist or not clean_handle or clean_handle == "unknownartist":
-                                release_info = candidate_release
-                                logger.info(f"¡Release ID ganadora confirmada: {mb_album_id} ({candidate_release.get('title')})!")
-                                break
                         except Exception as ree:
-                            logger.error(f"Error cargando release {mb_album_id}: {ree}")
-                
-                # Fallback: Búsqueda textual si la votación no arrojó resultados
-                if not release_info and not result.get("is_custom_playlist"):
-                    logger.info("No se encontró release mediante votación. Intentando búsqueda textual del álbum...")
-                    release_info = resolve_album_release_level(result["playlist_title"], result["playlist_artist"], len(tracks))
-                
-                # Si pudimos resolver el álbum completo por votación o búsqueda, re-mapeamos todos los tracks
+                            logger.error(f"Error cargando release {chosen_release_id}: {ree}")
+                else:
+                    # 2. Búsqueda por texto en MusicBrainz (Prioridad Alta)
+                    if not result.get("is_custom_playlist"):
+                        logger.info("Buscando release en MusicBrainz usando búsqueda textual...")
+                        release_info = resolve_album_release_level(result["playlist_title"], result["playlist_artist"], len(tracks))
+                    
+                    # 3. Si no se encontró por texto, obtener candidatos y preguntar si hay múltiples
+                    if not release_info and not result.get("is_custom_playlist"):
+                        logger.info("No se encontró release exacta. Buscando candidatos para presentar al usuario...")
+                        candidates = search_album_candidates(result["playlist_title"], result["playlist_artist"])
+                        if candidates:
+                            # Auto-seleccionar si hay un único candidato exacto en pistas y título similar
+                            if len(candidates) == 1 and abs(candidates[0]["tracks"] - len(tracks)) <= 1:
+                                try:
+                                    logger.info(f"Auto-seleccionado candidato único exacto: {candidates[0]['id']}")
+                                    release_info = musicbrainzngs.get_release_by_id(
+                                        candidates[0]['id'],
+                                        includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
+                                    ).get("release", {})
+                                except Exception as ree:
+                                    logger.error(f"Error cargando release única {candidates[0]['id']}: {ree}")
+                            else:
+                                # Hay múltiples candidatos, detener la ejecución y retornar la lista para que el bot pregunte
+                                print(json.dumps({
+                                    "success": True,
+                                    "is_playlist": True,
+                                    "playlist_title": result["playlist_title"],
+                                    "playlist_artist": result["playlist_artist"],
+                                    "candidates": candidates,
+                                    "tracks": tracks
+                                }))
+                                sys.exit(0)
+
+                # Si pudimos resolver el álbum completo, re-mapeamos todos los tracks
                 if release_info:
                     logger.info("Remapeando tracks usando la release oficial del álbum...")
                     for idx, t in enumerate(tracks):
@@ -1696,6 +1747,12 @@ if __name__ == "__main__":
                                 t['genre'] = MediaProcessor.classify_genre_from_metadata(t, mb_meta.get('genres', []))
                         except Exception as me:
                             logger.error(f"Error mapeando track {t.get('title')} a la release: {me}")
+                else:
+                    # Usar los metadatos de YouTube Music directamente
+                    logger.info("Usando metadatos de YouTube Music directamente sin MusicBrainz.")
+                    for t in tracks:
+                        sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
+                        t['genre'] = sug_genre
                 
                 # Cargar letras y agregar a la lista de géneros sugeridos
                 for t in tracks:
