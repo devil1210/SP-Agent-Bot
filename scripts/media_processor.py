@@ -1321,9 +1321,15 @@ class MediaProcessor:
         year = metadata.get('year', '')
         album_folder = f"[{year}] - {album}" if year else album
 
+        is_comp = bool(metadata.get('is_compilation'))
+        if not is_comp:
+            art_lower = album_artist.lower()
+            if "various artists" in art_lower or "varios artistas" in art_lower or art_lower in ["varios", "various"]:
+                is_comp = True
+
         if metadata.get('is_soundtrack'):
             final_dir = os.path.join(_music_dir, "Soundtracks", album_folder)
-        elif metadata.get('is_compilation'):
+        elif is_comp:
             final_dir = os.path.join(_music_dir, "Compilaciones", album_folder)
         else:
             folder = metadata.get('genre', 'General')
