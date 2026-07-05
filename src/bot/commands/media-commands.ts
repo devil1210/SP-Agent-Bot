@@ -144,7 +144,7 @@ export function registerMediaCommands(bot: Bot) {
           ctx.chat!.id,
           msg.message_id,
           candidatesText + `\nPor favor selecciona la opción correcta usando los botones, o decide ignorar la búsqueda si prefieres los datos de YT Music:`,
-          { reply_markup: keyboard, parse_mode: 'HTML', disable_web_page_preview: true }
+          { reply_markup: keyboard, parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
         );
         return;
       }
