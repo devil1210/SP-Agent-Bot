@@ -173,10 +173,20 @@ def resolve_album_release_level(playlist_title: str, playlist_artist: str, total
                 logger.error(f"Error buscando release sin artista: {e}")
                 return {}
         
+        def titles_are_similar(t1: str, t2: str) -> bool:
+            c1 = normalize_string_for_matching(t1)
+            c2 = normalize_string_for_matching(t2)
+            if not c1 or not c2:
+                return False
+            return c1 in c2 or c2 in c1
+
         best_release = None
-        # 1. Intentar buscar un match que coincida en track count y que el artista sea substring/coincida con el handle
+        # 1. Intentar buscar un match que coincida en track count, artista y título similar
         for rel in res.get('release-list', []):
             try:
+                rel_title = rel.get('title', '')
+                if not titles_are_similar(clean_album, rel_title):
+                    continue
                 track_count = int(rel.get('track-count', 0))
                 if track_count > 0 and abs(track_count - total_tracks) <= 2:
                     rel_artist = rel.get('artist-credit', [{}])[0].get('artist', {}).get('name', '').lower()
@@ -188,10 +198,13 @@ def resolve_album_release_level(playlist_title: str, playlist_artist: str, total
             except:
                 pass
                 
-        # 2. Si no encontramos con match de artista, tomar el primero con track count cercano
+        # 2. Si no encontramos con match de artista, tomar el primero con título similar y track count cercano
         if not best_release:
             for rel in res.get('release-list', []):
                 try:
+                    rel_title = rel.get('title', '')
+                    if not titles_are_similar(clean_album, rel_title):
+                        continue
                     track_count = int(rel.get('track-count', 0))
                     if track_count > 0 and abs(track_count - total_tracks) <= 2:
                         best_release = rel
@@ -199,9 +212,13 @@ def resolve_album_release_level(playlist_title: str, playlist_artist: str, total
                 except:
                     pass
                     
-        # 3. Fallback al primer resultado
-        if not best_release and res.get('release-list'):
-            best_release = res['release-list'][0]
+        # 3. Fallback al primer resultado que tenga título similar
+        if not best_release:
+            for rel in res.get('release-list', []):
+                rel_title = rel.get('title', '')
+                if titles_are_similar(clean_album, rel_title):
+                    best_release = rel
+                    break
             
         if best_release:
             rel_id = best_release['id']
