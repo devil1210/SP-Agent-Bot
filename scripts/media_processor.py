@@ -142,9 +142,204 @@ def normalize_string_for_matching(s: str) -> str:
     # Reemplazar slashes de yt-dlp y caracteres no alfanuméricos
     s = s.replace('\u29f8', '').replace('/', '').replace('\\', '').replace(':', '').replace('*', '').replace('?', '').replace('"', '').replace('<', '').replace('>', '').replace('|', '')
     # Quitar acentos/diacríticos comunes
-    import unicodedata
-    s = "".join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
     return re.sub(r'[^a-zA-Z0-9]', '', s).lower()
+
+def resolve_album_release_level(playlist_title: str, playlist_artist: str, total_tracks: int) -> dict:
+    """Intenta buscar la release completa en MusicBrainz y devolver sus tracks mapeados."""
+    import musicbrainzngs
+    try:
+        clean_album = clean_title_for_query(playlist_title)
+        if clean_album.lower().startswith('album - '):
+            clean_album = clean_album[8:].strip()
+        clean_artist = clean_artist_for_query(playlist_artist)
+        
+        # Buscar la release en MusicBrainz
+        query = f'release:"{clean_album}"'
+        if clean_artist and clean_artist != "Unknown Artist":
+            query += f' AND artist:"{clean_artist}"'
+            
+        logger.info(f"Buscando release en MusicBrainz: {query}")
+        res = musicbrainzngs.search_releases(query=query, limit=5)
+        
+        best_release = None
+        # Buscar la que tenga un número de tracks similar
+        for rel in res.get('release-list', []):
+            try:
+                track_count = int(rel.get('track-count', 0))
+                if track_count > 0 and abs(track_count - total_tracks) <= 2:
+                    best_release = rel
+                    break
+            except:
+                pass
+        
+        if not best_release and res.get('release-list'):
+            best_release = res['release-list'][0]
+            
+        if best_release:
+            rel_id = best_release['id']
+            logger.info(f"Release encontrada: {best_release.get('title')} ({rel_id})")
+            
+            rel_detail = musicbrainzngs.get_release_by_id(
+                rel_id,
+                includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
+            )
+            return rel_detail.get("release", {})
+    except Exception as e:
+        logger.error(f"Error en resolve_album_release_level: {e}")
+    return {}
+
+def map_release_track_to_metadata(release_info: dict, track_num: int, total_tracks: int) -> dict:
+    """Mapea una pista de la release de MusicBrainz a metadatos enriquecidos."""
+    try:
+        # Buscar la pista correspondiente en los mediums (discos)
+        media_list = release_info.get('medium-list', [])
+        current_track_idx = 0
+        target_track = None
+        target_medium = None
+        
+        # Buscar secuencialmente el track index global
+        for medium in media_list:
+            track_list = medium.get('track-list', [])
+            for track in track_list:
+                current_track_idx += 1
+                if current_track_idx == track_num:
+                    target_track = track
+                    target_medium = medium
+                    break
+            if target_track:
+                break
+                
+        # Si no se encontró por índice global, intentar por track number en el primer medium
+        if not target_track and media_list:
+            track_list = media_list[0].get('track-list', [])
+            if len(track_list) >= track_num:
+                target_track = track_list[track_num - 1]
+                target_medium = media_list[0]
+                
+        if target_track:
+            recording = target_track.get('recording', {})
+            recording_id = recording.get('id', '')
+            
+            title = recording.get('title') or target_track.get('title')
+            artist_credit = recording.get('artist-credit', []) or target_track.get('artist-credit', [])
+            artist_name = "Unknown Artist"
+            if artist_credit:
+                artist_name = "".join([
+                    credit['artist']['name'] + credit.get('joinphrase', '')
+                    if isinstance(credit, dict) and 'artist' in credit
+                    else str(credit)
+                    for credit in artist_credit
+                ])
+                
+            album_name = release_info.get('title')
+            
+            # Artista del álbum
+            album_artist_credit = release_info.get('artist-credit', [])
+            album_artist_name = artist_name
+            if album_artist_credit:
+                album_artist_name = "".join([
+                    credit['artist']['name'] + credit.get('joinphrase', '')
+                    if isinstance(credit, dict) and 'artist' in credit
+                    else str(credit)
+                    for credit in album_artist_credit
+                ])
+                
+            # Fecha
+            release_year = ""
+            original_date = ""
+            rel_date = release_info.get('date')
+            if rel_date:
+                release_year = rel_date[:4]
+                original_date = rel_date
+                
+            if release_info.get("release-group"):
+                rg = release_info["release-group"]
+                if rg.get("first-release-date"):
+                    original_date = rg["first-release-date"]
+            
+            # Artwork
+            artwork_url = ""
+            rel_id = release_info.get('id')
+            if rel_id:
+                artwork_url = f"https://coverartarchive.org/release/{rel_id}/front"
+            
+            # Tags / Genres
+            tags_dict = {}
+            excluded_tags = {"seen live", "favorites", "fixme", "owned"}
+            
+            def add_tags(tag_list):
+                if not tag_list:
+                    return
+                for tag in tag_list:
+                    name = tag.get("name", "").strip().lower()
+                    if name and name not in excluded_tags:
+                        try:
+                            count = int(tag.get("count", 1))
+                        except:
+                            count = 1
+                        tags_dict[name] = max(tags_dict.get(name, 0), count)
+            
+            add_tags(recording.get('tag-list'))
+            add_tags(release_info.get('tag-list'))
+            if release_info.get("release-group"):
+                add_tags(release_info["release-group"].get('tag-list'))
+                
+            for credit in artist_credit:
+                if isinstance(credit, dict) and credit.get('artist'):
+                    add_tags(credit['artist'].get('tag-list'))
+            for credit in album_artist_credit:
+                if isinstance(credit, dict) and credit.get('artist'):
+                    add_tags(credit['artist'].get('tag-list'))
+                    
+            sorted_tags = sorted(tags_dict.items(), key=lambda x: x[1], reverse=True)
+            genres = [tag[0].title() for tag in sorted_tags[:8]]
+            
+            # Media info
+            media_format = target_medium.get('format', 'CD') if target_medium else 'CD'
+            disc_number = target_medium.get('position', '1') if target_medium else '1'
+            disc_total = len(media_list)
+            
+            # Sort names
+            artist_sort = artist_name
+            albumartist_sort = album_artist_name
+            if artist_credit and isinstance(artist_credit[0], dict) and artist_credit[0].get('artist'):
+                artist_sort = artist_credit[0]['artist'].get('sort-name') or artist_name
+            if album_artist_credit and isinstance(album_artist_credit[0], dict) and album_artist_credit[0].get('artist'):
+                albumartist_sort = album_artist_credit[0]['artist'].get('sort-name') or album_artist_name
+                
+            return {
+                "title": clean_and_romaji(title),
+                "artist": clean_and_romaji(artist_name),
+                "album": clean_and_romaji(album_name),
+                "album_artist": clean_and_romaji(album_artist_name),
+                "year": release_year,
+                "original_date": original_date,
+                "genres": genres,
+                "musicbrainz_track_id": recording_id,
+                "musicbrainz_album_id": release_info.get('id', ''),
+                "musicbrainz_artist_id": artist_credit[0]['artist']['id'] if artist_credit and isinstance(artist_credit[0], dict) and artist_credit[0].get('artist') else '',
+                "musicbrainz_albumartist_id": album_artist_credit[0]['artist']['id'] if album_artist_credit and isinstance(album_artist_credit[0], dict) and album_artist_credit[0].get('artist') else '',
+                "musicbrainz_releasegroup_id": release_info["release-group"].get('id', '') if release_info.get("release-group") else '',
+                "musicbrainz_releasetrack_id": target_track.get('id', ''),
+                "track_number": str(target_track.get('position') or track_num),
+                "track_total": str(len(medium.get('track-list', [])) if target_medium else total_tracks),
+                "disc_number": str(disc_number),
+                "disc_total": str(disc_total),
+                "catalog_number": release_info.get('label-info-list', [{}])[0].get('catalog-number', '') if release_info.get('label-info-list') else '',
+                "label": release_info.get('label-info-list', [{}])[0].get('label', {}).get('name', '') if release_info.get('label-info-list') and release_info.get('label-info-list')[0].get('label') else '',
+                "barcode": release_info.get('barcode', ''),
+                "media": media_format,
+                "release_status": release_info.get('status', 'Official'),
+                "release_type": release_info.get('release-group', {}).get('primary-type', 'Album'),
+                "release_country": release_info.get('country', 'US'),
+                "release_script": release_info.get('text-representation', {}).get('script', 'Latn'),
+                "artist_sort": artist_sort,
+                "albumartist_sort": albumartist_sort,
+                "isrc": recording.get('isrc-list', [''])[0] if recording.get('isrc-list') else ''
+            }
+    except Exception as e:
+        logger.error(f"Error en map_release_track_to_metadata: {e}")
+    return {}
 
 def download_artwork(url: str, task_id: str) -> str:
     """Descarga la carátula oficial en alta resolución y la guarda temporalmente."""
@@ -1016,7 +1211,11 @@ class MediaProcessor:
                     metadata['title'] = clean_and_romaji(deezer['title'])
                     metadata['album'] = clean_and_romaji(deezer['album'])
 
-        # Guardar todos los géneros concatenados por punto y coma en metadata para inyectar al tag físico
+        return MediaProcessor.classify_genre_from_metadata(metadata, genres_found)
+
+    @staticmethod
+    def classify_genre_from_metadata(metadata: dict, genres_found: list) -> str:
+        """Determina la carpeta de género adecuada basándose en los géneros e inyecta el tag all_genres."""
         seen_genres = set()
         unique_genres = []
         
@@ -1373,10 +1572,34 @@ if __name__ == "__main__":
                 tracks = result["tracks"]
                 genres_suggested = []
                 artwork_cache = {}
-                for t in tracks:
-                    sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
-                    t['genre'] = sug_genre
-                    genres_suggested.append(sug_genre)
+                
+                # Intentar resolver a nivel de álbum completo en MusicBrainz primero (sólo para álbumes oficiales)
+                release_info = {}
+                if not result.get("is_custom_playlist"):
+                    release_info = resolve_album_release_level(result["playlist_title"], result["playlist_artist"], len(tracks))
+                
+                for idx, t in enumerate(tracks):
+                    mb_meta = {}
+                    if release_info:
+                        try:
+                            t_num = int(t.get('track_number') or (idx + 1))
+                            mb_meta = map_release_track_to_metadata(release_info, t_num, len(tracks))
+                        except Exception as me:
+                            logger.error(f"Error mapeando track {t.get('title')} a la release: {me}")
+                            
+                    if mb_meta:
+                        # Actualizar la metadata in-place
+                        for k, v in mb_meta.items():
+                            if v:
+                                t[k] = v
+                        # Obtener género clasificado local
+                        sug_genre = MediaProcessor.classify_genre_from_metadata(t, mb_meta.get('genres', []))
+                        t['genre'] = sug_genre
+                        genres_suggested.append(sug_genre)
+                    else:
+                        sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
+                        t['genre'] = sug_genre
+                        genres_suggested.append(sug_genre)
                     
                     lyrics = fetch_lyrics_from_lrclib(t['artist'], t['title'])
                     t['lyrics'] = lyrics
