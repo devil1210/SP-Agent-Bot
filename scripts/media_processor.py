@@ -1606,30 +1606,48 @@ if __name__ == "__main__":
                 genres_suggested = []
                 artwork_cache = {}
                 
-                # Intentar resolver a nivel de release ID usando los tracks resueltos
+                # 1. Hacemos lookup individual de todos los tracks primero para acumular sus MBIDs
+                album_ids_found = []
+                for idx, t in enumerate(tracks):
+                    sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
+                    t['genre'] = sug_genre
+                    
+                    mb_album_id = t.get('musicbrainz_album_id')
+                    if mb_album_id:
+                        album_ids_found.append(mb_album_id)
+                
+                # 2. Votación de la release mayoritaria
                 release_info = {}
-                release_resolved_at_idx = -1
-                
-                if not result.get("is_custom_playlist"):
-                    for idx, t in enumerate(tracks):
-                        # lookup individual
-                        sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
-                        t['genre'] = sug_genre
-                        
-                        mb_album_id = t.get('musicbrainz_album_id')
-                        if mb_album_id:
-                            try:
-                                logger.info(f"¡Release ID encontrado en track {idx+1}: {mb_album_id}! Descargando metadata completa del álbum...")
-                                release_info = musicbrainzngs.get_release_by_id(
-                                    mb_album_id,
-                                    includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
-                                ).get("release", {})
-                                release_resolved_at_idx = idx
+                if album_ids_found and not result.get("is_custom_playlist"):
+                    from collections import Counter
+                    mb_album_counter = Counter(album_ids_found).most_common()
+                    
+                    for mb_album_id, count in mb_album_counter:
+                        try:
+                            logger.info(f"Probando release ID candidata: {mb_album_id} (votos: {count})")
+                            candidate_release = musicbrainzngs.get_release_by_id(
+                                mb_album_id,
+                                includes=["recordings", "artists", "labels", "release-groups", "tags", "media"]
+                            ).get("release", {})
+                            
+                            # Validar que el artista tenga coincidencia con el uploader
+                            rel_artist = candidate_release.get('artist-credit', [{}])[0].get('artist', {}).get('name', '').lower()
+                            clean_rel_artist = normalize_string_for_matching(rel_artist)
+                            clean_handle = normalize_string_for_matching(result["playlist_artist"])
+                            
+                            if count >= len(tracks) * 0.3 or clean_rel_artist in clean_handle or clean_handle in clean_rel_artist or not clean_handle or clean_handle == "unknownartist":
+                                release_info = candidate_release
+                                logger.info(f"¡Release ID ganadora confirmada: {mb_album_id} ({candidate_release.get('title')})!")
                                 break
-                            except Exception as ree:
-                                logger.error(f"Error cargando release {mb_album_id}: {ree}")
+                        except Exception as ree:
+                            logger.error(f"Error cargando release {mb_album_id}: {ree}")
                 
-                # Si pudimos resolver el álbum completo, re-mapeamos todos los tracks
+                # Fallback: Búsqueda textual si la votación no arrojó resultados
+                if not release_info and not result.get("is_custom_playlist"):
+                    logger.info("No se encontró release mediante votación. Intentando búsqueda textual del álbum...")
+                    release_info = resolve_album_release_level(result["playlist_title"], result["playlist_artist"], len(tracks))
+                
+                # Si pudimos resolver el álbum completo por votación o búsqueda, re-mapeamos todos los tracks
                 if release_info:
                     logger.info("Remapeando tracks usando la release oficial del álbum...")
                     for idx, t in enumerate(tracks):
@@ -1644,13 +1662,6 @@ if __name__ == "__main__":
                                 t['genre'] = MediaProcessor.classify_genre_from_metadata(t, mb_meta.get('genres', []))
                         except Exception as me:
                             logger.error(f"Error mapeando track {t.get('title')} a la release: {me}")
-                else:
-                    # Fallback: si no pudimos resolver a nivel de álbum, seguimos procesando los tracks individualmente
-                    start_idx = release_resolved_at_idx + 1 if release_resolved_at_idx >= 0 else 0
-                    for idx in range(start_idx, len(tracks)):
-                        t = tracks[idx]
-                        sug_genre = MediaProcessor.fetch_genre_multi_provider(t)
-                        t['genre'] = sug_genre
                 
                 # Cargar letras y agregar a la lista de géneros sugeridos
                 for t in tracks:
