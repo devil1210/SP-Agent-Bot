@@ -871,6 +871,10 @@ class MediaProcessor:
         import re
         clean_title_cmp = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', safe_title).strip()
         
+        # Detectar palabras clave para evitar falsos positivos de covers/tributos/remixes
+        cover_keywords = ["cover", "tribute", "tributo", "remix"]
+        has_cover_in_search = any(word in clean_title_cmp for word in cover_keywords)
+        
         # 1. Intentar buscar en directorios del artista primero
         for root, dirs, files in os.walk(_music_dir):
             if ".tmp" in root or "Playlists" in root:
@@ -880,7 +884,9 @@ class MediaProcessor:
                     if f.lower().endswith(('.mp3', '.m4a')):
                         f_clean = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', f.lower())
                         if clean_title_cmp in f_clean:
-                            return os.path.join(root, f)
+                            has_cover_in_file = any(word in f_clean or word in root.lower() for word in cover_keywords)
+                            if has_cover_in_search == has_cover_in_file:
+                                return os.path.join(root, f)
                             
         # 2. Búsqueda global en toda la biblioteca
         for root, dirs, files in os.walk(_music_dir):
@@ -891,7 +897,9 @@ class MediaProcessor:
                     f_clean = re.sub(r'(?i)\b(feat|ft|with)\b\.?\s+.*', '', f.lower())
                     if clean_title_cmp in f_clean:
                         if safe_artist in f_clean or safe_artist in root.lower():
-                            return os.path.join(root, f)
+                            has_cover_in_file = any(word in f_clean or word in root.lower() for word in cover_keywords)
+                            if has_cover_in_search == has_cover_in_file:
+                                return os.path.join(root, f)
         return ""
 
     @staticmethod
