@@ -359,7 +359,7 @@ export function registerMediaCommands(bot: Bot) {
     );
 
     try {
-      const scriptPath = join(process.cwd(), 'romanizer.py');
+      const scriptPath = join(process.cwd(), 'scripts', 'romanizer.py');
       const proc = spawn(pythonCmd, [scriptPath, localPath]);
       let stdout = '';
       let stderr = '';
@@ -772,7 +772,7 @@ export function registerMediaCommands(bot: Bot) {
 
       try {
         await new Promise<void>((resolve, reject) => {
-          const scriptPath = join(process.cwd(), 'romanizer.py');
+          const scriptPath = join(process.cwd(), 'scripts', 'romanizer.py');
           const proc = spawn(pythonCmd, [scriptPath, subdir]);
           let stdout = '';
           let stderr = '';
@@ -838,7 +838,7 @@ export function registerMediaCommands(bot: Bot) {
 
       console.log(`[Romanizer Scan] Iniciando escaneo periódico en: ${jMusicDir}`);
       try {
-        const scriptPath = join(process.cwd(), 'romanizer.py');
+        const scriptPath = join(process.cwd(), 'scripts', 'romanizer.py');
         const proc = spawn(pythonCmd, [scriptPath, '--scan', jMusicDir]);
         let stdout = '';
         let stderr = '';
