@@ -85,7 +85,21 @@ def clean_and_romaji(text: str) -> str:
         return text
     result = kks.convert(text)
     romaji_text = " ".join([item.get('hepburn', item.get('orig', '')).capitalize() for item in result])
-    return romaji_text if romaji_text.strip() else text
+    if not romaji_text.strip():
+        return text
+        
+    # Limpieza de espacios indeseados creados por la segmentación de pykakasi
+    import re
+    # 1. Quitar espacios dentro de corchetes: "[ 2017 ]" -> "[2017]"
+    romaji_text = re.sub(r'\[\s*(.*?)\s*\]', r'[\1]', romaji_text)
+    # 2. Quitar espacios dentro de paréntesis: "( single )" -> "(single)"
+    romaji_text = re.sub(r'\(\s*(.*?)\s*\)', r'(\1)', romaji_text)
+    # 3. Quitar espacio antes de comas, puntos y signos de puntuación
+    romaji_text = re.sub(r'\s+([.,?!;])', r'\1', romaji_text)
+    # 4. Reemplazar múltiples espacios por uno solo
+    romaji_text = re.sub(r' +', ' ', romaji_text)
+    
+    return romaji_text.strip()
 
 def clean_title_for_query(title: str) -> str:
     """Limpia el título de colaboraciones y sufijos comunes (Remasters, Lives, etc.) para buscar en MusicBrainz."""
