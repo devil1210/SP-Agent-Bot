@@ -343,6 +343,65 @@ export function registerMediaCommands(bot: Bot) {
     await handleMediaDownload(ctx, 'album');
   });
 
+  bot.command('romanize', isAdminMiddleware, async (ctx) => {
+    const localPath = ctx.match.trim();
+    if (!localPath) {
+      return await ctx.reply(
+        "💡 <b>Uso:</b> <code>/romanize /ruta/a/la/carpeta</code>\n" +
+        "Romaniza recursivamente nombres de archivos, carpetas y metadatos de audio (Kanji/Kana -> Romaji).",
+        { parse_mode: 'HTML' }
+      );
+    }
+
+    const msg = await ctx.reply(
+      "⏳ Iniciando romanización recursiva de archivos, carpetas y tags en el servidor...",
+      { message_thread_id: ctx.message?.message_thread_id }
+    );
+
+    try {
+      const proc = spawn(pythonCmd, ['romanizer.py', localPath]);
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', async (code) => {
+        if (code !== 0) {
+          const errMsg = (stderr || stdout).substring(0, 3000);
+          await ctx.api.editMessageText(
+            ctx.chat!.id, msg.message_id,
+            `❌ <b>Error al romanizar (código ${code}):</b>\n<pre>${errMsg}</pre>`,
+            { parse_mode: 'HTML' }
+          );
+        } else {
+          const lines = stdout.split('\n').filter(l => l.trim().startsWith('[Archivo]') || l.trim().startsWith('[Carpeta]'));
+          const summary = lines.slice(0, 20).join('\n');
+          const remaining = lines.length > 20 ? `\n... y ${lines.length - 20} elementos más.` : '';
+          
+          await ctx.api.editMessageText(
+            ctx.chat!.id, msg.message_id,
+            `✅ <b>Romanización completada con éxito</b>\n\n` +
+            `<pre>${summary || "No se requirieron cambios (los archivos ya estaban en Romaji o no contienen japonés)."}${remaining}</pre>`,
+            { parse_mode: 'HTML' }
+          );
+        }
+      });
+    } catch (e: any) {
+      console.error(`[Romanizer Command Error]`, e);
+      await ctx.api.editMessageText(
+        ctx.chat!.id, msg.message_id,
+        `❌ Error al iniciar el romanizador: ${e.message}`
+      );
+    }
+  });
+
+
   // =========================================================================
   // COMANDO /fix - Escanear y corregir archivos locales del servidor
   // =========================================================================
@@ -670,4 +729,177 @@ export function registerMediaCommands(bot: Bot) {
       }
     );
   });
+
+  // =========================================================================
+  // CALLBACKS Y LOGICA DE ESCANEO PERIODICO DE ROMANIZACION
+  // =========================================================================
+  bot.callbackQuery(/^autorom_(yes|no)_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const action = ctx.match[1];
+    const taskId = ctx.match[2];
+    
+    const task = pendingTasks.get(taskId);
+    if (!task) {
+      await ctx.editMessageText("❌ Esta solicitud de romanización expiró o ya fue procesada.");
+      return;
+    }
+    
+    if (action === 'no') {
+      pendingTasks.delete(taskId);
+      await ctx.editMessageText("❌ Operación cancelada. Se ignoró la romanización por esta vez.");
+      return;
+    }
+
+    await ctx.editMessageText("⏳ Iniciando la romanización de las subcarpetas seleccionadas en el servidor...");
+    
+    const subdirs: string[] = task.subdirs || [];
+    if (subdirs.length === 0) {
+      await ctx.editMessageText("❌ No hay subcarpetas que romanizar.");
+      pendingTasks.delete(taskId);
+      return;
+    }
+
+    let successCount = 0;
+    let allStdout = '';
+    let hasError = false;
+    let errorMsg = '';
+
+    for (let i = 0; i < subdirs.length; i++) {
+      const subdir = subdirs[i];
+      const folderName = subdir.split(/[\\/]/).pop() || subdir;
+      await ctx.editMessageText(`⏳ Procesando subcarpeta [${i + 1}/${subdirs.length}]: <code>${folderName}</code>...`, { parse_mode: 'HTML' });
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn(pythonCmd, ['romanizer.py', subdir]);
+          let stdout = '';
+          let stderr = '';
+
+          proc.stdout.on('data', (data) => {
+            stdout += data.toString();
+          });
+          proc.stderr.on('data', (data) => {
+            stderr += data.toString();
+          });
+
+          proc.on('close', (code) => {
+            allStdout += stdout;
+            if (code !== 0) {
+              hasError = true;
+              errorMsg += `Error en <b>${folderName}</b> (código ${code}): ${stderr || stdout}\n`;
+            } else {
+              successCount++;
+            }
+            resolve();
+          });
+        });
+      } catch (err: any) {
+        hasError = true;
+        errorMsg += `Excepción en <b>${folderName}</b>: ${err.message}\n`;
+      }
+    }
+
+    pendingTasks.delete(taskId);
+
+    if (hasError && successCount === 0) {
+      await ctx.editMessageText(`❌ <b>Error durante la romanización:</b>\n<pre>${errorMsg.substring(0, 3000)}</pre>`, { parse_mode: 'HTML' });
+    } else {
+      const lines = allStdout.split('\n').filter(l => l.trim().startsWith('[Archivo]') || l.trim().startsWith('[Carpeta]'));
+      const summary = lines.slice(0, 20).join('\n');
+      const remaining = lines.length > 20 ? `\n... y ${lines.length - 20} elementos más.` : '';
+      
+      const successHeader = hasError 
+        ? `⚠️ <b>Romanización completada con algunos errores:</b>\n` +
+          `Se procesaron con éxito <b>${successCount}/${subdirs.length}</b> subcarpetas.\n\n` +
+          `<b>Errores detectados:</b>\n<pre>${errorMsg.substring(0, 1000)}</pre>\n\n`
+        : `✅ <b>Romanización de subcarpetas completada con éxito</b>\n` +
+          `Se procesaron <b>${successCount}</b> subcarpetas en total.\n\n`;
+
+      await ctx.editMessageText(
+        successHeader +
+        `<b>Detalle de cambios:</b>\n` +
+        `<pre>${summary || "No se realizaron cambios."}${remaining}</pre>`,
+        { parse_mode: 'HTML' }
+      );
+    }
+  });
+
+  function startPeriodicRomanizeScan(botInstance: Bot) {
+    const musicDir = process.env.MUSIC_DIR || (process.platform === 'win32' ? 'M:\\music' : '/media/music');
+    const jMusicDir = join(musicDir, 'J-Music');
+
+    const checkAndNotify = async () => {
+      if (!existsSync(jMusicDir)) {
+        console.log(`[Romanizer Scan] Carpeta J-Music no encontrada en: ${jMusicDir}`);
+        return;
+      }
+
+      console.log(`[Romanizer Scan] Iniciando escaneo periódico en: ${jMusicDir}`);
+      try {
+        const proc = spawn(pythonCmd, ['romanizer.py', '--scan', jMusicDir]);
+        let stdout = '';
+
+        proc.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+
+        proc.on('close', async (code) => {
+          if (code === 0) {
+            try {
+              const result = JSON.parse(stdout.trim());
+              if (result.success && result.detected && result.subdirs && result.subdirs.length > 0) {
+                console.log(`[Romanizer Scan] Se detectaron ${result.subdirs.length} subcarpetas que requieren romanización.`);
+                
+                const taskId = `autorom_${Date.now()}`;
+                storeTask(taskId, { subdirs: result.subdirs });
+
+                const keyboard = new InlineKeyboard()
+                  .text("✅ Sí, romanizar", `autorom_yes_${taskId}`).row()
+                  .text("❌ No, ignorar", `autorom_no_${taskId}`);
+
+                const subdirsList = result.subdirs.map((d: string) => {
+                  const name = d.split(/[\\/]/).pop() || d;
+                  return `• <code>${name}</code>`;
+                }).join('\n');
+
+                const msgText = `🔍 <b>Música japonesa sin romanizar detectada en J-Music</b>\n\n` +
+                  `He encontrado <b>${result.subdirs.length}</b> subcarpetas con caracteres Kanji/Kana en sus nombres o en sus archivos:\n` +
+                  `${subdirsList}\n\n` +
+                  `¿Deseas iniciar la romanización automática de metadatos y nombres físicos para estas carpetas?`;
+
+                for (const adminId of config.telegramAllowedUserIds) {
+                  try {
+                    await botInstance.api.sendMessage(parseInt(adminId), msgText, {
+                      reply_markup: keyboard,
+                      parse_mode: 'HTML'
+                    });
+                  } catch (sendErr) {
+                    console.error(`[Romanizer Scan] Error enviando mensaje a admin ${adminId}:`, sendErr);
+                  }
+                }
+              } else {
+                console.log(`[Romanizer Scan] Escaneo completado: J-Music está completamente limpia de caracteres Kanji/Kana.`);
+              }
+            } catch (jsonErr) {
+              console.error(`[Romanizer Scan] Error parseando salida de escaneo:`, jsonErr, stdout);
+            }
+          } else {
+            console.error(`[Romanizer Scan] Proceso de escaneo falló con código ${code}`);
+          }
+        });
+      } catch (e) {
+        console.error(`[Romanizer Scan] Error al iniciar escaneo de romanización:`, e);
+      }
+    };
+
+    // Ejecutar por primera vez a los 15 segundos del inicio del bot
+    setTimeout(checkAndNotify, 15000);
+
+    // Ejecutar cada 12 horas
+    setInterval(checkAndNotify, 12 * 60 * 60 * 1000);
+  }
+
+  // Lanzar el escaneo periódico
+  startPeriodicRomanizeScan(bot);
 }
+
