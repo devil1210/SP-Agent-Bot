@@ -143,6 +143,19 @@ def process_directory(root_dir):
                 os.rename(full_dir_path, new_dir_path)
                 print(f"[Carpeta] Renombrada: {dirname} -> {new_dirname}")
 
+    # 3. Romanizar la propia carpeta raíz si es necesario
+    parent_dir = os.path.dirname(root_dir)
+    base_name = os.path.basename(root_dir)
+    if base_name:
+        new_base_name = to_romaji(base_name)
+        if new_base_name != base_name:
+            new_root_path = os.path.join(parent_dir, new_base_name)
+            try:
+                os.rename(root_dir, new_root_path)
+                print(f"[Carpeta] Renombrada raíz: {base_name} -> {new_base_name}")
+            except Exception as e:
+                print(f"[Error] No se pudo renombrar la carpeta raíz {root_dir}: {e}")
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Uso: python3 romanizer.py [--scan] /ruta/a/tu/musica")
