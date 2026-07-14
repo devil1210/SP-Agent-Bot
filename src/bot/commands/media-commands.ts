@@ -133,6 +133,8 @@ const GENRE_MAPPING_KEYS = [
   "Pop"
 ];
 
+let manualScanTrigger: (() => Promise<void>) | null = null;
+
 export function registerMediaCommands(bot: Bot) {
   const isAdminMiddleware = async (ctx: Context, next: () => Promise<void>) => {
     if (await isAdmin(ctx.from?.id.toString())) {
@@ -731,6 +733,19 @@ export function registerMediaCommands(bot: Bot) {
     );
   });
 
+  bot.command('romanizar', isAdminMiddleware, async (ctx) => {
+    if (manualScanTrigger) {
+      await ctx.reply("🔍 Iniciando escaneo manual de J-Music en busca de Kanji/Kana...", {
+        message_thread_id: ctx.message?.message_thread_id
+      });
+      manualScanTrigger();
+    } else {
+      await ctx.reply("⚠️ El motor de escaneo de romanización no está inicializado.", {
+        message_thread_id: ctx.message?.message_thread_id
+      });
+    }
+  });
+
   // =========================================================================
   // CALLBACKS Y LOGICA DE ESCANEO PERIODICO DE ROMANIZACION
   // =========================================================================
@@ -899,6 +914,8 @@ export function registerMediaCommands(bot: Bot) {
         console.error(`[Romanizer Scan] Error al iniciar escaneo de romanización:`, e);
       }
     };
+
+    manualScanTrigger = checkAndNotify;
 
     // Ejecutar por primera vez a los 15 segundos del inicio del bot
     setTimeout(checkAndNotify, 15000);
