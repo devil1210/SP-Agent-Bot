@@ -841,9 +841,14 @@ export function registerMediaCommands(bot: Bot) {
         const scriptPath = join(process.cwd(), 'romanizer.py');
         const proc = spawn(pythonCmd, [scriptPath, '--scan', jMusicDir]);
         let stdout = '';
+        let stderr = '';
 
         proc.stdout.on('data', (data) => {
           stdout += data.toString();
+        });
+
+        proc.stderr.on('data', (data) => {
+          stderr += data.toString();
         });
 
         proc.on('close', async (code) => {
@@ -887,7 +892,7 @@ export function registerMediaCommands(bot: Bot) {
               console.error(`[Romanizer Scan] Error parseando salida de escaneo:`, jsonErr, stdout);
             }
           } else {
-            console.error(`[Romanizer Scan] Proceso de escaneo falló con código ${code}`);
+            console.error(`[Romanizer Scan] Proceso de escaneo falló con código ${code}. Stderr: ${stderr || stdout}`);
           }
         });
       } catch (e) {
