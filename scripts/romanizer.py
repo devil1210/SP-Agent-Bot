@@ -31,13 +31,20 @@ def to_romaji(text: str) -> str:
         
     # Limpieza de espacios indeseados creados por la segmentación de pykakasi
     import re
-    # 1. Quitar espacios dentro de corchetes: "[ 2017 ]" -> "[2017]"
-    romaji_text = re.sub(r'\[\s*(.*?)\s*\]', r'[\1]', romaji_text)
-    # 2. Quitar espacios dentro de paréntesis: "( single )" -> "(single)"
-    romaji_text = re.sub(r'\(\s*(.*?)\s*\)', r'(\1)', romaji_text)
+    # 1. Quitar espacios después de abrir corchetes, paréntesis y llaves
+    romaji_text = re.sub(r'([(\[{])\s+', r'\1', romaji_text)
+    # 2. Quitar espacios antes de cerrar corchetes, paréntesis y llaves
+    romaji_text = re.sub(r'\s+([)\]}])', r'\1', romaji_text)
     # 3. Quitar espacio antes de comas, puntos y signos de puntuación
-    romaji_text = re.sub(r'\s+([.,?!;])', r'\1', romaji_text)
-    # 4. Reemplazar múltiples espacios por uno solo
+    romaji_text = re.sub(r'\s+([.,?!;:;])', r'\1', romaji_text)
+    # 4. Quitar espacio después del punto si es seguido por un dígito (ej. Vol.4)
+    romaji_text = re.sub(r'\.\s+(\d)', r'.\1', romaji_text)
+    # 5. Normalizar espacios alrededor de guiones y tildes/ondas
+    romaji_text = re.sub(r'\s+-\s+', ' - ', romaji_text)
+    romaji_text = re.sub(r'\s*([~〜])\s*', r' \1 ', romaji_text)
+    # 6. Normalizar el punto medio (・) con un espacio a cada lado
+    romaji_text = re.sub(r'\s*[\u30fb・]\s*', ' ・ ', romaji_text)
+    # 7. Reemplazar múltiples espacios por uno solo
     romaji_text = re.sub(r' +', ' ', romaji_text)
     
     return romaji_text.strip()
