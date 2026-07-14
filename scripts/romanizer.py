@@ -126,7 +126,9 @@ def process_directory(root_dir):
                 romanize_tags(full_path)
                 
                 # Cambiar nombre físico del archivo
-                new_filename = to_romaji(filename)
+                name, file_ext = os.path.splitext(filename)
+                new_name = to_romaji(name)
+                new_filename = new_name + file_ext
                 if new_filename != filename:
                     new_path = os.path.join(dirpath, new_filename)
                     os.rename(full_path, new_path)
