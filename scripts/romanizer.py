@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re
 import mutagen
 from mutagen.easyid3 import EasyID3
 from mutagen.flac import FLAC
@@ -18,37 +19,78 @@ def contains_japanese(text: str) -> bool:
             return True
     return False
 
+
+# Bloque de caracteres japoneses (Hiragana, Katakana, Kanji, y signos JP)
+_JP_SEG = re.compile(
+    r'[\u3040-\u309f'   # Hiragana
+    r'\u30a0-\u30ff'    # Katakana (incluye ー y ・ \u30fb)
+    r'\u4e00-\u9faf'    # Kanji CJK
+    r'\uff00-\uffef'    # Full-width Latin / Katakana
+    r'\u300c\u300d'     # 「」
+    r'\u300e\u300f'     # 『』
+    r'\u3010\u3011'     # 【】
+    r'\u3001\u3002'     # 、。 (coma y punto japoneses)
+    r']+'
+)
+
+# Caracteres que actúan como separadores (no requieren espacio adicional junto al romaji)
+_SEPARATORS = set(' \t\n\r-–—/|()\u301c~.')
+
+def _convert_jp_segment(segment: str) -> str:
+    """Convierte un segmento puramente japonés a Romaji sin espacios internos."""
+    result = kks.convert(segment)
+    parts = []
+    for item in result:
+        orig = item.get('orig', '')
+        h    = item.get('hepburn', orig)
+        if orig == '\u30fb':        # ・ punto medio katakana -> middle dot ASCII
+            parts.append(' \u00b7 ')
+        else:
+            parts.append(h)
+    rom = ''.join(parts)
+    # Normalizar puntuación japonesa residual
+    rom = rom.replace('\u3001', ', ').replace('\u3002', '.')
+    rom = re.sub(r' {2,}', ' ', rom)
+    return rom.strip()
+
 def to_romaji(text: str) -> str:
-    """Convierte caracteres japoneses a Romaji legible, manteniendo intactos los demás idiomas."""
+    """
+    Convierte SOLO los bloques japoneses de un texto a Romaji (Hepburn).
+    El texto no japonés (inglés, números, símbolos, etc.) se preserva tal cual.
+    """
     if not text:
         return text
-    if not contains_japanese(text):
-        return text
-    result = kks.convert(text)
-    romaji_text = " ".join([item.get('hepburn', item.get('orig', '')).capitalize() for item in result])
-    if not romaji_text.strip():
-        return text
-        
-    # Limpieza de espacios indeseados creados por la segmentación de pykakasi
-    import re
-    # 1. Quitar espacios después de abrir corchetes, paréntesis y llaves
-    romaji_text = re.sub(r'([(\[{])\s+', r'\1', romaji_text)
-    # 2. Quitar espacios antes de cerrar corchetes, paréntesis y llaves
-    romaji_text = re.sub(r'\s+([)\]}])', r'\1', romaji_text)
-    # 3. Quitar espacio antes de comas, puntos y signos de puntuación
-    romaji_text = re.sub(r'\s+([.,?!;:;])', r'\1', romaji_text)
-    # 4. Quitar espacio después del punto si es seguido por un dígito (ej. Vol.4)
-    romaji_text = re.sub(r'\.\s+(\d)', r'.\1', romaji_text)
-    # 5. Normalizar espacios alrededor de guiones y tildes/ondas
-    romaji_text = re.sub(r'\s+-\s+', ' - ', romaji_text)
-    romaji_text = re.sub(r'\s*([~〜])\s*', r' \1 ', romaji_text)
-    # 6. Normalizar el punto medio (・) con un espacio a cada lado
-    romaji_text = re.sub(r'\s*[\u30fb・]\s*', ' ・ ', romaji_text)
-    # 7. Reemplazar múltiples espacios por uno solo
-    romaji_text = re.sub(r' +', ' ', romaji_text)
-    
-    return romaji_text.strip()
 
+    non_jp_parts = _JP_SEG.split(text)
+    jp_matches   = _JP_SEG.findall(text)
+
+    # Sin japonés: retornar intacto
+    if not jp_matches:
+        return text
+
+    result_parts = []
+    for i, part in enumerate(non_jp_parts):
+        result_parts.append(part)
+        if i < len(jp_matches):
+            rom = _convert_jp_segment(jp_matches[i])
+            if not rom:
+                continue
+
+            left  = part
+            right = non_jp_parts[i + 1] if i + 1 < len(non_jp_parts) else ''
+
+            last_char  = left[-1]  if left  else ''
+            first_char = right[0]  if right else ''
+
+            # Añadir espacio solo si el caracter adyacente no es ya un separador
+            sp_left  = '' if (not last_char  or last_char  in _SEPARATORS) else ' '
+            sp_right = '' if (not first_char or first_char in _SEPARATORS) else ' '
+
+            result_parts.append(sp_left + rom + sp_right)
+
+    result = ''.join(result_parts)
+    result = re.sub(r' {2,}', ' ', result)
+    return result.strip()
 
 def romanize_tags(filepath):
     try:
