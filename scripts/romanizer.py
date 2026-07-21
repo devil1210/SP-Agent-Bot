@@ -50,7 +50,9 @@ def _convert_jp_segment(segment: str) -> str:
     rom = ''.join(parts)
     # Normalizar puntuación japonesa residual
     rom = rom.replace('\u3001', ', ').replace('\u3002', '.')
-    rom = re.sub(r' {2,}', ' ', rom)
+    rom = re.sub(r' {2,}', ' ', rom).strip()
+    if rom:
+        rom = rom.capitalize()
     return rom.strip()
 
 def to_romaji(text: str) -> str:
@@ -221,9 +223,27 @@ def process_directory(root_dir):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Uso: python3 romanizer.py [--scan] /ruta/a/tu/musica")
         sys.exit(1)
-        
+
+    if sys.argv[1] == "--json-dict":
+        if len(sys.argv) < 3:
+            sys.stdout.buffer.write(b"{}")
+            sys.exit(1)
+        try:
+            raw_input = sys.argv[2]
+            input_dict = json.loads(raw_input)
+            res_dict = {}
+            for k, v in input_dict.items():
+                if isinstance(v, str):
+                    res_dict[k] = to_romaji(v)
+                else:
+                    res_dict[k] = v
+            sys.stdout.buffer.write(json.dumps(res_dict, ensure_ascii=False).encode('utf-8'))
+        except Exception as e:
+            err_res = {"error": str(e)}
+            sys.stdout.buffer.write(json.dumps(err_res, ensure_ascii=False).encode('utf-8'))
+        sys.exit(0)
+
     if sys.argv[1] == "--scan":
         if len(sys.argv) < 3:
             print(json.dumps({"success": False, "error": "Ruta no especificada para escaneo"}))
