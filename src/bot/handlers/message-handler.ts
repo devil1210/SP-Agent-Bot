@@ -238,9 +238,10 @@ async function handleIncomingMessage(ctx: Context) {
   if (isGroup) {
     const { getAuthorizedGroups } = await import('../../db/settings.js');
     const authorized = await getAuthorizedGroups();
-    if (!authorized.some(g => g.id === chatId)) {
-      console.warn(`[Bot] 🛑 Chat no autorizado.`);
-      try { await ctx.leaveChat(); } catch (e) {}
+    // Solo bloqueamos si tenemos la lista de autorizados cargada y el chat explícitamente no está en ella.
+    // NUNCA auto-expulsamos el bot del chat por fallos de base de datos o red.
+    if (authorized.length > 0 && !authorized.some(g => g.id === chatId)) {
+      console.warn(`[Bot] 🛑 Chat no autorizado (${chatId}). Ignorando mensaje.`);
       return;
     }
 

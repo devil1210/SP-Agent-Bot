@@ -273,6 +273,8 @@ export const setPassiveThreads = async (chatId: string, threadIds: number[]): Pr
     await addMemory(chatId, 'assistant', `Topics pasivos: [${threadIds.join(', ')}]`);
 };
 
+let cachedAuthorizedGroups: {id: string, name: string}[] = [];
+
 export const getAuthorizedGroups = async (): Promise<{id: string, name: string}[]> => {
     try {
         const history = await getHistory(GLOBAL_CONFIG_ID, 100);
@@ -280,21 +282,27 @@ export const getAuthorizedGroups = async (): Promise<{id: string, name: string}[
         if (lastConfig) {
             const match = lastConfig.content.match(/Grupos autorizados: \[(.*)\]/);
             if (match && match[1]) {
-                return match[1].split(',').map((s: string) => {
+                const parsed = match[1].split(',').map((s: string) => {
                     const part = s.trim();
                     const nameMatch = part.match(/^(.+?)\s*\(((-?\d+))\)$/);
                     return nameMatch ? { name: nameMatch[1], id: nameMatch[2] } : { id: part, name: 'Desconocido' };
                 }).filter((g: any) => g.id);
+                cachedAuthorizedGroups = parsed;
+                return parsed;
             }
         }
-        return [];
-    } catch (e) { return []; }
+        return cachedAuthorizedGroups;
+    } catch (e) {
+        console.warn('[Settings] Error obteniendo grupos autorizados desde DB, usando caché:', e);
+        return cachedAuthorizedGroups;
+    }
 };
 
 export const authorizeGroup = async (chatId: string, name: string = 'Grupo'): Promise<void> => {
     let current = await getAuthorizedGroups();
     current = current.filter(g => g.id !== chatId);
     const newList = [...current, { id: chatId, name }];
+    cachedAuthorizedGroups = newList;
     const serialized = newList.map(g => `${g.name} (${g.id})`).join(', ');
     await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Grupos autorizados: [${serialized}]`);
 };
@@ -302,6 +310,7 @@ export const authorizeGroup = async (chatId: string, name: string = 'Grupo'): Pr
 export const revokeGroup = async (chatId: string): Promise<void> => {
     let current = await getAuthorizedGroups();
     current = current.filter(g => g.id !== chatId);
+    cachedAuthorizedGroups = current;
     const serialized = current.map(g => `${g.name} (${g.id})`).join(', ');
     await addMemory(GLOBAL_CONFIG_ID, 'assistant', `Grupos autorizados: [${serialized}]`);
 };
